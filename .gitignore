@@ -1,0 +1,11 @@
+# secrets (keep the template)
+.env*
+!.env.example
+
+# dependencies / build output
+node_modules
+.next
+.venv
+__pycache__
+*.pyc
+*.mp4
