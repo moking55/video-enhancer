@@ -5,7 +5,7 @@ import pytest
 from enhancer_worker import cli, media
 from enhancer_worker.api import ApiClient
 from enhancer_worker.heartbeat import Cancelled, Heartbeat, LeaseLost
-from enhancer_worker.probe import probe_file
+from enhancer_worker.probe import is_cfr, probe_file
 from fake_api import TOKEN, FakeApi
 
 MOCK_PRESET = {"id": "mock-x2", "model": "mock", "scale": 2, "params": {}}
@@ -49,6 +49,31 @@ def test_e2e_success(api, clips, tmp_path, capsys, monkeypatch):
     assert len(probes) == 1 and probes[0]["frames"] == 60
     assert not (tmp_path / "work" / job_id).exists()  # cleaned up
     assert api.endpoints("fail") == []
+
+
+def test_e2e_vfr_is_normalized_to_cfr(api, clips, tmp_path, capsys):
+    src = probe_file(clips["vfr"])
+    assert not is_cfr(src)
+    job_id = api.add_job(clips["vfr"], MOCK_PRESET)
+    assert run_cli(api, tmp_path) == 0
+    out = capsys.readouterr().out
+    assert f"job {job_id}: normalized VFR" in out and "-> CFR" in out
+
+    assert api.jobs[job_id]["state"] == "SUCCEEDED", api.endpoints("fail")
+    target = media.cfr_target_fps(src.avg_fps)
+    meta = api.endpoints("complete")[0]["outputMeta"]
+    assert meta["fps"] == float(target) and meta["hasAudio"] is True
+    probes = [b["probe"] for b in api.endpoints("heartbeat") if "probe" in b]
+    assert len(probes) == 1
+    assert probes[0]["normalized"] == {"fromAvgFps": float(src.avg_fps), "toFps": float(target)}
+
+    uploaded = tmp_path / "uploaded.mp4"
+    uploaded.write_bytes(api.uploads[f"{job_id}.mp4"])
+    out_info = probe_file(uploaded, force_count=True)
+    assert out_info.fps == target and is_cfr(out_info)
+    # Output frames = duration x target (frames duplicated/dropped), verified against the normalized input.
+    assert abs(out_info.frames - src.duration * float(target)) <= 3
+    assert not (tmp_path / "work" / job_id).exists()
 
 
 def test_e2e_processes_queue_and_respects_max_jobs(api, clips, tmp_path, capsys):

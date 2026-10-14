@@ -189,8 +189,13 @@ def is_cfr(info: ProbeInfo) -> bool:
     return True
 
 
-def check_input_limits(info: ProbeInfo, preset: Preset) -> None:
-    """Raise InputUnsupported listing every violated limit."""
+def check_input_limits(
+    info: ProbeInfo, preset: Preset, *, allow_vfr: bool = False, check_size: bool = True
+) -> None:
+    """Raise InputUnsupported listing every violated limit.
+
+    allow_vfr: the caller normalizes VFR to CFR itself. check_size: False for the normalized
+    intermediate (near-lossless, so larger than the upload the size limit applies to)."""
     r: list[str] = []
     if "mp4" not in info.format_name.split(","):
         r.append(f"container must be MP4 (got {info.format_name or 'unknown'})")
@@ -202,13 +207,13 @@ def check_input_limits(info: ProbeInfo, preset: Preset) -> None:
         r.append(f"HDR is not supported (transfer {info.color_transfer})")
     if info.has_audio and info.audio_codec != "aac":
         r.append(f"audio must be AAC or absent (got {info.audio_codec})")
-    if not is_cfr(info):
+    if not allow_vfr and not is_cfr(info):
         r.append("variable frame rate is not supported (r_frame_rate != avg_frame_rate)")
     if info.frames <= 0 or info.width <= 0 or info.height <= 0:
         r.append("no decodable video frames")
     if info.duration > preset.max_duration_sec:
         r.append(f"duration {info.duration:.1f}s exceeds {preset.max_duration_sec}s")
-    if info.size_bytes > preset.max_size_bytes:
+    if check_size and info.size_bytes > preset.max_size_bytes:
         r.append(f"file size {info.size_bytes} bytes exceeds {preset.max_size_bytes}")
     if info.width > preset.max_width or info.height > preset.max_height:
         r.append(

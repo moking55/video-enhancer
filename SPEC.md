@@ -101,7 +101,8 @@ Route Handlers รันบน Node.js runtime (ค่า default; ห้าม�
 
 **Measured on T4 (Colab ฟรี, fp16, 2026-10-14, spike T3):** x4plus 640×360 → 1.31 s/เฟรม (tile 0, โมเดล ≈ 95% ของเวลา; decode/encode เล็กน้อย); x4plus 1280×720 (เส้นทาง x2 เดิม) → 6.8 s/เฟรม คิดตามจำนวนพิกเซล input; realesr-animevideov3 → 0.16 s/เฟรม (640×360 → 2560×1440); encoder: h264_nvenc 21 fps ที่ 1440p, libx264 6.9 fps ค่า x2plus และ fast เป็นการประมาณการจนกว่าจะวัดจริง ดู `docs/spikes/realesrgan.md`
 
-Input ทุก preset: MP4, H.264, SDR 8-bit, CFR, ≤ 120 s, ≤ 500 MiB, เสียง AAC หรือไม่มี (browser ต้องเล่นต้นฉบับได้เพื่อเทียบ)
+Input ทุก preset: MP4, H.264, SDR 8-bit, ≤ 120 s, ≤ 500 MiB, เสียง AAC หรือไม่มี (browser ต้องเล่นต้นฉบับได้เพื่อเทียบ)
+VFR → Colab normalize เป็น CFR อัตโนมัติก่อนประมวลผล (เฟรมอาจถูกทำซ้ำ/ตัดทิ้ง): fps เป้าหมาย = ค่ามาตรฐานที่ใกล้ `avg_fps` สุดจาก {24000/1001, 24, 25, 30000/1001, 30, 50, 60000/1001, 60} จำกัดไม่เกิน 30; intermediate H.264 CRF 12 เสียง copy; output เทียบกับไฟล์ที่ normalize แล้ว (จำนวนเฟรม/FPS ของ output = ของ CFR ไม่ใช่ของต้นฉบับ); heartbeat `probe.normalized = {fromAvgFps, toFps}`
 Output: MP4 H.264 yuv420p (h264_nvenc ถ้าใช้ได้ มิฉะนั้น libx264 CRF 18 preset medium), bt709, เสียง copy, จำนวนเฟรมและ FPS เท่าต้นฉบับ ไม่มี fallback เปลี่ยนโมเดล/scale เอง (OOM → ลด tile ตามที่ preset อนุญาต แล้วบันทึกค่า)
 
 ## หน้าเทียบ (หัวใจของโปรเจกต์)

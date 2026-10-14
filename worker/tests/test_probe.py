@@ -156,3 +156,26 @@ def test_limit_hdr_10bit_and_audio(clips):
         check_input_limits(replace(base, audio_codec="mp3"), PRESET)
     with pytest.raises(InputUnsupported, match="MP4"):
         check_input_limits(replace(base, format_name="matroska,webm"), PRESET)
+
+
+def test_vfr_clip_is_not_cfr(clips):
+    info = probe_file(clips["vfr"])
+    assert not is_cfr(info), (info.fps, info.avg_fps, info.frames, info.duration)
+    with pytest.raises(InputUnsupported, match="variable frame rate"):
+        check_input_limits(info, PRESET)
+    check_input_limits(info, PRESET, allow_vfr=True)  # caller normalizes
+
+
+@pytest.mark.parametrize("avg, expected", [
+    (Fraction(235, 10), Fraction(24000, 1001)),
+    (Fraction(24), Fraction(24)),
+    (Fraction(25), Fraction(25)),
+    (Fraction(299, 10), Fraction(30000, 1001)),
+    (Fraction(30), Fraction(30)),
+    (Fraction(48), Fraction(30)),
+    (Fraction(599, 10), Fraction(30)),
+    (Fraction(0), Fraction(30)),
+])
+def test_cfr_target_fps(avg, expected):
+    from enhancer_worker.media import cfr_target_fps
+    assert cfr_target_fps(avg) == expected

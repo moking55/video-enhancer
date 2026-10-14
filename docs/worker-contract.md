@@ -38,7 +38,7 @@ The claim picks the oldest QUEUED job of any user (FIFO by creation time; the to
 ## POST /worker/jobs/{jobId}/heartbeat
 
 `{ "attemptId", "stage": "download"|"probe"|"enhance"|"encode"|"upload", "processedFrames"?: int, "totalFrames"?: int, "probe"?: object }` -> `200 { "cancelRequested": boolean }`.
-`probe` = ffprobe summary of the input, send once after the probe stage. If `cancelRequested` is true: stop, then call `fail` with code `CANCELLED`.
+`probe` = ffprobe summary of the input, send once after the probe stage. For variable-frame-rate input the worker normalizes to CFR (nearest standard rate to avg fps, max 30) and adds `normalized: { fromAvgFps: number, toFps: number }` to the probe object (the other fields describe the original upload; `outputMeta.fps`/`frames` follow the CFR rate). If `cancelRequested` is true: stop, then call `fail` with code `CANCELLED`.
 
 ## POST /worker/jobs/{jobId}/output-url
 

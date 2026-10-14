@@ -35,6 +35,39 @@ def passthrough_flags(ffmpeg: str = "ffmpeg") -> tuple[str, ...]:
     return ("-fps_mode", "passthrough") if p.returncode == 0 else ("-vsync", "0")
 
 
+@lru_cache(maxsize=None)
+def cfr_flags(ffmpeg: str = "ffmpeg") -> tuple[str, ...]:
+    """-fps_mode cfr (ffmpeg >= 5.1) or -vsync cfr (older): feature-tested like passthrough_flags."""
+    p = subprocess.run(
+        [ffmpeg, "-v", "error", "-f", "lavfi", "-i", "color=c=black:s=64x64:r=5", "-frames:v", "1",
+         "-fps_mode", "cfr", "-f", "null", "-"],
+        capture_output=True,
+    )
+    return ("-fps_mode", "cfr") if p.returncode == 0 else ("-vsync", "cfr")
+
+
+# VFR input is normalized to the nearest of these rates (MVP limit: at most 30 fps).
+STANDARD_FPS = (Fraction(24000, 1001), Fraction(24), Fraction(25), Fraction(30000, 1001), Fraction(30),
+                Fraction(50), Fraction(60000, 1001), Fraction(60))
+MAX_CFR_FPS = Fraction(30)
+
+
+def cfr_target_fps(avg_fps: Fraction) -> Fraction:
+    """Nearest standard rate to avg_fps, capped at MAX_CFR_FPS. Unknown/invalid avg -> the cap."""
+    if avg_fps <= 0 or avg_fps >= MAX_CFR_FPS:
+        return MAX_CFR_FPS
+    return min(STANDARD_FPS, key=lambda r: abs(r - avg_fps))
+
+
+def normalize_cfr_cmd(src: str | Path, dst: str | Path, fps: Fraction) -> list[str]:
+    """One pass: re-time the first video stream to constant `fps` (frames duplicated/dropped),
+    near-lossless H.264 intermediate tagged BT.709, audio copied."""
+    return ["ffmpeg", "-v", "error", "-y", "-i", str(src), "-map", "0:v:0", "-map", "0:a?",
+            *cfr_flags(), "-r", fps_arg(fps),
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "12", "-pix_fmt", "yuv420p", *BT709_TAGS,
+            "-c:a", "copy", "-movflags", "+faststart", str(dst)]
+
+
 def fps_arg(fps: Fraction) -> str:
     return f"{fps.numerator}/{fps.denominator}"
 

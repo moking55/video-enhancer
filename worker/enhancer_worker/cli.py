@@ -60,8 +60,22 @@ def _pipeline(
 
     stage("probe")
     info = probe.probe_file(in_path)
-    stage("probe", probe=info.to_summary())
-    probe.check_input_limits(info, preset)
+    summary = info.to_summary()
+    vfr = not probe.is_cfr(info)
+    target_fps = media.cfr_target_fps(info.avg_fps if info.avg_fps > 0 else info.fps) if vfr else None
+    if target_fps is not None:
+        summary["normalized"] = {"fromAvgFps": float(info.avg_fps), "toFps": float(target_fps)}
+    stage("probe", probe=summary)
+    probe.check_input_limits(info, preset, allow_vfr=True)
+
+    if target_fps is not None:
+        log(f"job {job_id}: normalized VFR {float(info.avg_fps):.3f} fps -> CFR {float(target_fps):.3f} fps")
+        norm_path = job_dir / "normalized.mp4"
+        media.run(media.normalize_cfr_cmd(in_path, norm_path, target_fps))
+        hb.check()
+        in_path = norm_path
+        info = probe.probe_file(in_path)
+        probe.check_input_limits(info, preset, check_size=False)
 
     stage("enhance")
     hb.set_progress(0, info.frames)
