@@ -163,6 +163,16 @@ describe('POST /api/v1/jobs', () => {
     expect(calls.some((c) => c.op === 'insert')).toBe(false);
   });
 
+  it('422 PRESET_TOO_SLOW for 540p 120 s on 4x, without inserting', async () => {
+    setup(asset({ client_meta: { width: 960, height: 540, duration: 120 } }));
+    const res = await create('realesrgan-x4');
+    expect(res.status).toBe(422);
+    const body = await res.json();
+    expect(body.error.code).toBe('PRESET_TOO_SLOW');
+    expect(body.error.message).toContain('Fast 4x (general)');
+    expect(calls.some((c) => c.op === 'insert')).toBe(false);
+  });
+
   it('429 TOO_MANY_ACTIVE_JOBS at 2 active jobs, without inserting', async () => {
     setup(asset(), 2);
     const res = await create();

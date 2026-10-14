@@ -9,7 +9,7 @@ import {
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
-/** RustFS (S3-compatible) access. Signed URLs only; bytes never pass through Next.js. */
+/** Cloudflare R2 (S3-compatible) access. Signed URLs only; bytes never pass through Next.js. */
 
 let client: S3Client | undefined;
 
@@ -23,7 +23,8 @@ function requireEnv(name: string): string {
 function getClient(): S3Client {
   client ??= new S3Client({
     endpoint: requireEnv('STORAGE_ENDPOINT'),
-    region: process.env.STORAGE_REGION?.trim() || 'us-east-1',
+    // R2 uses region `auto`; forcePathStyle works with R2's path-style endpoint.
+    region: process.env.STORAGE_REGION?.trim() || 'auto',
     forcePathStyle: true,
     credentials: {
       accessKeyId: requireEnv('STORAGE_ACCESS_KEY_ID'),

@@ -58,7 +58,7 @@ vi.mock('@/lib/supabase/server', () => ({
 
 vi.mock('@/lib/storage', () => ({
   inputKey: (id: string) => `inputs/${id}.mp4`,
-  presignGet: vi.fn(async (key: string) => `https://rustfs.example.test/bucket/${key}?sig=x`),
+  presignGet: vi.fn(async (key: string) => `https://account.r2.example.test/bucket/${key}?sig=x`),
 }));
 
 import { POST as claim } from '@/app/api/v1/worker/claim/route';

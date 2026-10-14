@@ -145,7 +145,7 @@ beforeEach(() => {
   calls.length = 0;
   headObject.mockReset();
   presignPut.mockReset();
-  presignPut.mockResolvedValue('https://rustfs.example.test/put?sig=x');
+  presignPut.mockResolvedValue('https://account.r2.example.test/put?sig=x');
   job = fresh();
   setup();
 });

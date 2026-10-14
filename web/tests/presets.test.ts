@@ -2,8 +2,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   checkPresetCompatibility,
+  estimateProcessingSec,
   getPreset,
   listPresets,
+  MAX_ESTIMATED_SEC,
   MIB,
   type Preset,
 } from '@/lib/contracts/presets';
@@ -79,6 +81,84 @@ describe('checkPresetCompatibility', () => {
   });
 });
 
+describe('estimateProcessingSec', () => {
+  it('estimates 720p 10 s on x2 (30 fps default) as overhead + 300 x 1.31 s', () => {
+    const sec = estimateProcessingSec(preset('realesrgan-x2'), {
+      width: 1280,
+      height: 720,
+      durationSec: 10,
+    });
+    expect(sec).toBeCloseTo(60 + 300 * 1.31, 5);
+    expect(sec / 60).toBeGreaterThan(7.5);
+    expect(sec / 60).toBeLessThan(7.6);
+  });
+
+  it('uses the given fps and scales with input pixels', () => {
+    const p = preset('realesrgan-x4');
+    const base = { width: 640, height: 360, durationSec: 10 };
+    expect(estimateProcessingSec(p, { ...base, fps: 24 })).toBeCloseTo(60 + 240 * 1.31, 5);
+    expect(estimateProcessingSec(p, { ...base, width: 1280, height: 720 })).toBeCloseTo(
+      60 + 300 * 1.31 * 4,
+      5,
+    );
+  });
+
+  it('is much cheaper for the compact models', () => {
+    const input = { width: 640, height: 360, durationSec: 10 };
+    expect(estimateProcessingSec(preset('realesrgan-fast-x4'), input)).toBeCloseTo(
+      60 + 300 * 0.16,
+      5,
+    );
+    expect(estimateProcessingSec(preset('realesrgan-anime-x4'), input)).toBeCloseTo(
+      60 + 300 * 0.16,
+      5,
+    );
+  });
+});
+
+describe('PRESET_TOO_SLOW budget', () => {
+  const meta540 = { width: 960, height: 540, duration: 120 };
+
+  it('rejects 540p 120 s on x4plus and suggests the fast preset', () => {
+    const r = checkPresetCompatibility(preset('realesrgan-x4'), meta540);
+    expect(r).toMatchObject({ ok: false, code: 'PRESET_TOO_SLOW' });
+    if (r.ok) throw new Error('unreachable');
+    expect(r.reason).toMatch(/Estimated \d+ min/);
+    expect(r.reason).toContain('Fast 4x (general)');
+  });
+
+  it('accepts the same clip on the fast preset (inside the budget)', () => {
+    expect(checkPresetCompatibility(preset('realesrgan-fast-x4'), meta540)).toEqual({ ok: true });
+    expect(
+      estimateProcessingSec(preset('realesrgan-fast-x4'), {
+        width: 960,
+        height: 540,
+        durationSec: 120,
+      }),
+    ).toBeLessThan(MAX_ESTIMATED_SEC);
+  });
+
+  it('accepts 720p 10 s on x2 and does not apply the budget when duration is unknown', () => {
+    expect(
+      checkPresetCompatibility(preset('realesrgan-x2'), { width: 1280, height: 720, duration: 10 }).ok,
+    ).toBe(true);
+    expect(checkPresetCompatibility(preset('realesrgan-x4'), { width: 960, height: 540 }).ok).toBe(
+      true,
+    );
+  });
+
+  it('suggests a shorter video when no preset fits', () => {
+    const r = checkPresetCompatibility(preset('realesrgan-x2'), {
+      width: 1920,
+      height: 1080,
+      duration: 120,
+    });
+    expect(r).toMatchObject({ ok: false, code: 'PRESET_TOO_SLOW' });
+    if (r.ok) throw new Error('unreachable');
+    expect(r.reason).toContain('shorter or smaller');
+  });
+});
+
 describe('registry', () => {
   it('defines the real presets with SPEC models and limits', () => {
     const x2 = preset('realesrgan-x2');
@@ -86,6 +166,11 @@ describe('registry', () => {
     expect(x2.maxInput).toEqual({ width: 1920, height: 1080 });
     expect(x2.note).toBeUndefined();
     expect(preset('realesrgan-anime-x4').model).toBe('realesr-animevideov3');
+    expect(preset('realesrgan-fast-x4')).toMatchObject({
+      model: 'realesr-general-x4v3',
+      scale: 4,
+      maxInput: { width: 960, height: 540 },
+    });
     expect(preset('realesrgan-x4').limits).toEqual({
       maxDurationSec: 120,
       maxSizeBytes: 500 * MIB,
@@ -104,6 +189,7 @@ describe('registry', () => {
       'realesrgan-x2',
       'realesrgan-x4',
       'realesrgan-anime-x4',
+      'realesrgan-fast-x4',
     ]);
     expect(getPreset('mock-x2')).toBeUndefined();
   });

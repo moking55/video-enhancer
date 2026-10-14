@@ -51,6 +51,11 @@ WEIGHTS: Mapping[str, WeightSpec] = {
             f"{_RELEASE}/v0.2.5.0/realesr-animevideov3.pth",
             "b8a8376811077954d82ca3fcf476f1ac3da3e8a68a4f4d71363008000a18b75d", 2504012,
         ),
+        WeightSpec(
+            "realesr-general-x4v3", "realesr-general-x4v3.pth",
+            f"{_RELEASE}/v0.2.5.0/realesr-general-x4v3.pth",
+            "8dc7edb9ac80ccdc30c3a5dca6616509367f05fbc184ad95b731f05bece96292", 4885111,
+        ),
     )
 }
 

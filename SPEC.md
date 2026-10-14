@@ -8,7 +8,7 @@
 เครื่องมือส่วนตัวสำหรับทำวิดีโอให้คมขึ้นจริงด้วย GPU ของ Colab เพราะ GTX 1650 4 GB ในเครื่องไม่พอ ใช้ได้โดย **ผู้ใช้ไม่เกิน 5 คน** (เจ้าของ + เพื่อน, รายชื่อใน `ALLOWED_EMAILS`) ข้อมูลแยกตามผู้ใช้ด้วย RLS; **operator** (รายชื่อใน `OPERATOR_EMAILS`, คือเจ้าของ) เป็นคนเดียวที่ออก worker token และรัน Colab ประมวลผลคิวของทุกคน
 
 Flow หลัก:
-1. Login → อัปโหลด MP4 ผ่านเว็บ (ไฟล์ไปที่ RustFS ตรง)
+1. Login → อัปโหลด MP4 ผ่านเว็บ (ไฟล์ไปที่ Cloudflare R2 ตรง)
 2. **เลือกโมเดล + preset ก่อนสั่งงาน** (1 job = 1 โมเดล)
 3. เปิด Colab notebook เอง กดรัน → notebook ทำงานที่รอคิวอยู่จนหมดแล้วจบ
 4. กลับมาที่เว็บ ดูต้นฉบับ vs ผลลัพธ์ **side-by-side** (sync เวลา, wipe slider, ซูม) → ดาวน์โหลด
@@ -25,7 +25,7 @@ Flow หลัก:
 Browser ──HTTPS──> Next.js on Vercel (UI + /api/v1 Route Handlers)
    │                    │ Supabase SSR client (RLS)      │ S3 SDK presign
    │                    v                                 v
-   │               Supabase (Auth + Postgres)        RustFS (HTTPS, private bucket)
+   │               Supabase (Auth + Postgres)        Cloudflare R2 (private bucket)
    └──signed PUT/GET────────────────────────────────────^      ^
 Colab notebook ──HTTPS /api/v1/worker/* (worker token)──┘      │ signed GET/PUT
                └────────────────────────────────────────────────┘
@@ -35,8 +35,8 @@ Colab notebook ──HTTPS /api/v1/worker/* (worker token)──┘      │ sig
 |---|---|---|
 | Next.js (Vercel) | auth, presign URL, สร้าง/ดู/ยกเลิก job, รับ heartbeat/complete จาก Colab, หน้าเทียบ | ไม่รับ bytes วิดีโอ (Vercel body limit), ไม่รัน ffmpeg, ไม่มีงานเบื้องหลัง |
 | Supabase | Auth (email+password, ปิด signup), ตาราง `assets`, `jobs`, `worker_tokens` + RLS owner-only, RPC `claim_job` | ไม่ใช้ Storage/Realtime |
-| RustFS | เก็บ input/output, private bucket, CORS อนุญาตเฉพาะ origin ของเว็บ | ไม่เปิด public read |
-| Colab notebook | ffprobe ตรวจ input, enhance, encode, ตรวจ output, อัปโหลด, รายงานผล | ไม่ถือ secret ของ Supabase/RustFS (ได้แค่ signed URL) |
+| Cloudflare R2 | เก็บ input/output, private bucket, CORS (ตั้งที่ bucket settings) อนุญาตเฉพาะ origin ของเว็บ | ไม่เปิด public read (ไม่ใช้ `r2.dev` / custom domain สาธารณะ) |
+| Colab notebook | ffprobe ตรวจ input, enhance, encode, ตรวจ output, อัปโหลด, รายงานผล | ไม่ถือ secret ของ Supabase/R2 (ได้แค่ signed URL) |
 
 ข้อสังเกตจาก handoff ที่ยังเก็บไว้เพราะราคาถูก: ห้าม browser/Colab แตะ DB ตรง; ใช้ `attempt_id` กัน notebook เก่าส่งผลทับ (เวอร์ชันย่อของ fencing); key ของ object สร้างฝั่ง server ด้วย UUID; ไม่ log signed URL
 
@@ -89,12 +89,17 @@ Route Handlers รันบน Node.js runtime (ค่า default; ห้าม�
 
 ## Presets และ limits (ค่าเริ่มต้น ปรับได้หลังวัดจริง)
 
-| presetId | โมเดล | Input ที่รับ |
-|---|---|---|
-| `realesrgan-x2` | **RealESRGAN_x2plus** (native 2×; เปลี่ยน 2026-10-14 เพราะ x4→ย่อ คำนวณหนักเท่า 4×) | ≤ 1920×1080 |
-| `realesrgan-x4` | RealESRGAN_x4plus | ≤ 960×540 (output ≤ 4K) |
-| `realesrgan-anime-x4` | realesr-animevideov3 | ≤ 960×540 |
+| presetId | โมเดล | Input ที่รับ | วินาที/เฟรม/ล้านพิกเซล input (T4) |
+|---|---|---|---|
+| `realesrgan-x2` | **RealESRGAN_x2plus** (native 2×; เปลี่ยน 2026-10-14 เพราะ x4→ย่อ คำนวณหนักเท่า 4×) | ≤ 1920×1080 | 1.42 (ประมาณการ) |
+| `realesrgan-x4` | RealESRGAN_x4plus | ≤ 960×540 (output ≤ 4K) | 5.69 (วัดจริง) |
+| `realesrgan-anime-x4` | realesr-animevideov3 | ≤ 960×540 | 0.69 (วัดจริง) |
+| `realesrgan-fast-x4` | realesr-general-x4v3 (SRVGGNetCompact, num_conv=32; เร็วกว่า ละเอียดน้อยกว่าเล็กน้อย) | ≤ 960×540 | 0.69 (ประมาณการ ใช้ค่าเดียวกับ anime) |
 | `seedvr2-*` | กำหนดหลัง spike | กำหนดหลัง spike |
+
+**งบเวลา GPU (2026-10-14):** แทนเพดาน 120 s อย่างเดียว เว็บประมาณเวลา = 60 s (ติดตั้ง/โหลดโมเดล/โอนไฟล์) + จำนวนเฟรม × (ล้านพิกเซล input × ค่าสัมประสิทธิ์ของ preset) และปฏิเสธ (422 `PRESET_TOO_SLOW`, พร้อมแนะนำ preset ที่เร็วกว่าถ้าเข้างบ) เมื่อเกิน `MAX_ESTIMATED_SEC` = 30 นาที; `GET /presets` ส่งค่าสัมประสิทธิ์ให้ UI แสดง "≈ N นาที บน Colab T4" เพดานเดิม (≤ 500 MiB, ≤ 120 s, ขนาดภาพต่อ preset) ยังอยู่
+
+**Measured on T4 (Colab ฟรี, fp16, 2026-10-14, spike T3):** x4plus 640×360 → 1.31 s/เฟรม (tile 0, โมเดล ≈ 95% ของเวลา; decode/encode เล็กน้อย); x4plus 1280×720 (เส้นทาง x2 เดิม) → 6.8 s/เฟรม คิดตามจำนวนพิกเซล input; realesr-animevideov3 → 0.16 s/เฟรม (640×360 → 2560×1440); encoder: h264_nvenc 21 fps ที่ 1440p, libx264 6.9 fps ค่า x2plus และ fast เป็นการประมาณการจนกว่าจะวัดจริง ดู `docs/spikes/realesrgan.md`
 
 Input ทุก preset: MP4, H.264, SDR 8-bit, CFR, ≤ 120 s, ≤ 500 MiB, เสียง AAC หรือไม่มี (browser ต้องเล่นต้นฉบับได้เพื่อเทียบ)
 Output: MP4 H.264 yuv420p (h264_nvenc ถ้าใช้ได้ มิฉะนั้น libx264 CRF 18 preset medium), bt709, เสียง copy, จำนวนเฟรมและ FPS เท่าต้นฉบับ ไม่มี fallback เปลี่ยนโมเดล/scale เอง (OOM → ลด tile ตามที่ preset อนุญาต แล้วบันทึกค่า)
@@ -111,7 +116,7 @@ Output: MP4 H.264 yuv420p (h264_nvenc ถ้าใช้ได้ มิฉะ�
 
 ## Tech Stack (pin version จริงตอน scaffold แล้วบันทึกที่นี่)
 
-- Web: Node 24, pnpm, TypeScript strict, Next.js App Router (stable ล่าสุด), `@supabase/ssr`, `@supabase/supabase-js`, `zod`, `@aws-sdk/client-s3`, `@aws-sdk/s3-request-presigner` (`forcePathStyle: true` สำหรับ RustFS), Tailwind
+- Web: Node 24, pnpm, TypeScript strict, Next.js App Router (stable ล่าสุด), `@supabase/ssr`, `@supabase/supabase-js`, `zod`, `@aws-sdk/client-s3`, `@aws-sdk/s3-request-presigner` (`forcePathStyle: true`, region `auto` สำหรับ Cloudflare R2), Tailwind
 - DB: Supabase CLI ผ่าน `pnpm dlx supabase` (migrations + gen types)
 - Colab: Python 3 ของ Colab, `requests`, ffmpeg/ffprobe ของ Colab, Real-ESRGAN official repo pin commit + weight SHA-256; SeedVR2 wrapper เลือกใน spike แล้ว pin commit
 - Weights cache ใน Google Drive (mount) เพื่อไม่ต้องโหลดใหม่ทุก session
@@ -130,7 +135,7 @@ Output: MP4 H.264 yuv420p (h264_nvenc ถ้าใช้ได้ มิฉะ�
 ```
 cd web
 pnpm install
-pnpm dev                      # http://localhost:3000 (ใช้ Supabase dev + RustFS bucket dev)
+pnpm dev                      # http://localhost:3000 (ใช้ Supabase dev + R2 bucket dev)
 pnpm typecheck && pnpm lint
 pnpm test                     # vitest
 pnpm db:push                  # supabase db push → project
@@ -156,7 +161,7 @@ worker/                       Python package ที่ notebook ติดตั�
   enhancer_worker/            api.py, probe.py, encode.py, runners/{mock,realesrgan,seedvr2}.py, cli.py
   tests/
   colab_runner.ipynb          ไม่มี secret; อ่าน token จาก Colab Secrets
-docs/spikes/                  rustfs.md, seedvr2.md (ผลวัดจริง)
+docs/spikes/                  rustfs.md (ประวัติ, ล้มเหลว), r2.md, seedvr2.md (ผลวัดจริง)
 ```
 
 ## Code Style
@@ -187,7 +192,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
 |---|---|---|
 | Unit (web) | Vitest | zod contracts, การเลือก preset ตาม dims, state guards, sync-drift logic ของหน้าเทียบ |
 | DB (local) | Vitest + PGlite (Postgres WASM) + stub `auth`/roles | migration ใช้ได้, RLS owner-only, grants ของ `claim_job`, logic ของ claim |
-| Integration (web) | Vitest กับ Supabase dev + RustFS bucket `dev` (opt-in ด้วย env, รันเมื่อผู้ใช้อนุมัติ) | upload→complete, claim พร้อมกันไม่ซ้ำ (SKIP LOCKED), stale attempt ได้ 409 |
+| Integration (web) | Vitest กับ Supabase dev + R2 bucket `dev` (opt-in ด้วย env, รันเมื่อผู้ใช้อนุมัติ) | upload→complete, claim พร้อมกันไม่ซ้ำ (SKIP LOCKED), stale attempt ได้ 409 |
 
 **ห้ามใช้ Docker** ในการ dev/test ทุกกรณี (คำสั่งผู้ใช้ 2026-10-14) — รวม `supabase start/db start/db reset/stop`; types ของ DB สร้างจาก cloud dev project
 | Unit (worker) | pytest | parse ffprobe, ตรวจ limit, เทียบ frame count/duration, retry HTTP |
@@ -198,8 +203,8 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
 ## Boundaries
 
 - **Always**: ตรวจ session + `ALLOWED_EMAILS` ทุก user route (และ `OPERATOR_EMAILS` สำหรับ worker token/คิวรวม); ผู้ใช้เห็นเฉพาะข้อมูลตัวเอง; ตรวจ worker token (hash) ทุก worker route; ตรวจ `attempt_id`; รัน typecheck + test ก่อนบอกว่าเสร็จ; regenerate DB types หลังเปลี่ยน schema
-- **Ask first**: เพิ่ม dependency นอกรายการ; `db:push` ไป Supabase; deploy Vercel prod; แก้ CORS/bucket policy ของ RustFS; เปลี่ยน API contract
-- **Never**: commit `.env`/token; ใส่ secret ใน `NEXT_PUBLIC_*` หรือ notebook; ส่ง Supabase secret key หรือ RustFS key ไป Colab; notebook ที่วน polling/keepalive; ส่ง bytes วิดีโอผ่าน Vercel
+- **Ask first**: เพิ่ม dependency นอกรายการ; `db:push` ไป Supabase; deploy Vercel prod; แก้ CORS/bucket policy ของ R2; เปลี่ยน API contract
+- **Never**: commit `.env`/token; ใส่ secret ใน `NEXT_PUBLIC_*` หรือ notebook; ส่ง Supabase secret key หรือ R2 key ไป Colab; notebook ที่วน polling/keepalive; ส่ง bytes วิดีโอผ่าน Vercel
 
 ## Success Criteria
 
@@ -214,7 +219,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
 
 | Risk | รับมือ |
 |---|---|
-| RustFS presign/CORS ไม่เข้ากับ AWS SDK | spike แรก (T0) ก่อนเขียน upload |
+| R2 presign/CORS ไม่เข้ากับ AWS SDK | spike แรก (T2, ดู `docs/spikes/r2.md`) ก่อนเขียน upload |
 | `realesrgan`/`basicsr` pip ไม่เข้ากับ torchvision ใหม่บน Colab | pin version หรือ patch import ใน notebook; ทดสอบใน spike Real-ESRGAN |
 | Colab ตัด session / ไม่ได้ GPU | Requeue; คลิปสั้น; weights ใน Drive |
 | Colab policy | ใช้แบบกดรันเองครั้งต่อครั้ง ประมวลผลคิวแล้วจบ ไม่มี daemon/keepalive |
@@ -226,11 +231,15 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
 
 - Colab: ฟรี (T4) — Real-ESRGAN เป็นเส้นทางหลัก, SeedVR2 spike ตามข้างบน
 - Repo: public GitHub; `git init` ในเครื่องได้ แต่สร้าง remote/push ครั้งแรกต้องถามก่อน
-- RustFS: bucket `video-enhancer`, access key ที่สิทธิ์เฉพาะ bucket นี้, CORS ระดับ bucket อนุญาต origin ของ Vercel + `http://localhost:3000` สำหรับ `PUT, GET, HEAD` (ผู้ใช้ตั้งได้เอง)
+- **Storage = Cloudflare R2** (แทน self-hosted RustFS): เหตุผล "self-hosted RustFS behind Cloudflare proxy truncated GETs, HEAD 403s, no CORS (T2 2026-10-14)" (ผล T2 ที่ล้มเหลวอยู่ที่ `docs/spikes/rustfs.md`)
+  - Endpoint `https://<ACCOUNT_ID>.r2.cloudflarestorage.com`, region `auto`, path-style (`forcePathStyle: true`), bucket `video-enhancer`
+  - R2 API token สิทธิ์ Object Read & Write เฉพาะ bucket นี้
+  - CORS ตั้งที่ **R2 bucket settings** อนุญาต origin ของ Vercel + `http://localhost:3000` สำหรับ `PUT, GET, HEAD` (ผู้ใช้ตั้งได้เอง; JSON ที่ใช้อยู่ใน `docs/spikes/r2.md`)
+  - R2 single PUT limit 5 GiB เพียงพอสำหรับ input 500 MiB; retention ในอนาคตใช้ R2 lifecycle rules ได้
 
 - **Multi-user (2026-10-14)**: ≤ 5 คน, limit เดิมต่อคน (2 งานค้าง, 500 MiB/ไฟล์), ไม่มี quota พื้นที่ ผู้ใช้สร้างโดยเจ้าของใน Supabase (signup ปิด) Operator รัน Colab ให้ทุกคน: worker token ออกได้เฉพาะ operator, `claim_job` เลือกงาน QUEUED เก่าสุดของ **ทุก owner**, worker routes ไม่กรอง owner แต่ยังตรวจ `attempt_id` operator มีหน้า "คิว" เห็นงานค้างของทุกคน (อีเมล, ชื่อไฟล์, preset, state) แต่ไม่เห็น/ดาวน์โหลดวิดีโอของคนอื่นผ่านเว็บ
 - ความเสี่ยงที่ยอมรับ: Colab ของ operator ประมวลผลวิดีโอของเพื่อน (privacy ระหว่างเพื่อน) และมีลักษณะคล้ายบริการมากขึ้นต่อ policy Colab — ยังกดรันเองทีละครั้ง ไม่มี daemon
 
 ## Open Questions
 
-- ไม่มี blocker เหลือ ชื่อ domain ของ RustFS/Vercel ใส่ใน env ตอน setup
+- ไม่มี blocker เหลือ ชื่อ domain ของ R2/Vercel ใส่ใน env ตอน setup

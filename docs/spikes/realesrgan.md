@@ -1,6 +1,6 @@
 # Spike T3: Real-ESRGAN on Colab free T4
 
-Status: notebook ready, **not yet run**. Results below are placeholders to fill from the notebook's JSON summary.
+Status: **run on Colab free T4 on 2026-10-14; all verify checks passed.** Only the headline numbers below were reported back; cells marked "n/r" (not reported) were not copied from the summary JSON. Numbers marked (estimate) are derived, not measured.
 
 ## Purpose
 
@@ -69,8 +69,8 @@ Feeds T16 (`runners/realesrgan.py`), the preset limits in SPEC, and Checkpoint 0
 
 | Field | Value |
 |---|---|
-| Date run | |
-| GPU / driver / VRAM | |
+| Date run | 2026-10-14 |
+| GPU / driver / VRAM | Colab free T4 (16 GB class), driver n/r |
 | Python | |
 | torch / torchvision / CUDA | |
 | ffmpeg version | |
@@ -84,18 +84,19 @@ Feeds T16 (`runners/realesrgan.py`), the preset limits in SPEC, and Checkpoint 0
 
 | File | Bytes | SHA-256 |
 |---|---|---|
-| RealESRGAN_x4plus.pth | | |
-| realesr-animevideov3.pth | | |
+| RealESRGAN_x4plus.pth | 67040989 | `4fa0d38905f75ac06eb49a7951b426670021be3018265fd191d2125df9d682f1` |
+| realesr-animevideov3.pth | 2504012 | `b8a8376811077954d82ca3fcf476f1ac3da3e8a68a4f4d71363008000a18b75d` |
+| realesr-general-x4v3.pth (added after the spike, hashed locally) | 4885111 | `8dc7edb9ac80ccdc30c3a5dca6616509367f05fbc184ad95b731f05bece96292` |
 
 ### VRAM probe (2 frames each, fp16)
 
 | Case | Tile | OOM? | Peak alloc (MiB) | s/frame |
 |---|---|---|---|---|
-| x4 from 360p | 0 | | | |
+| x4 from 360p | 0 | no | n/r | 1.31 |
 | x4 from 360p | 128 | | | |
 | x4 from 360p | 256 | | | |
 | x4 from 360p | 512 | | | |
-| x2 from 720p | 0 | | | |
+| x2 from 720p (x4plus + outscale 2, old path) | 0 | no | n/r | 6.8 |
 | x2 from 720p | 128 | | | |
 | x2 from 720p | 256 | | | |
 | x2 from 720p | 512 | | | |
@@ -104,41 +105,62 @@ Feeds T16 (`runners/realesrgan.py`), the preset limits in SPEC, and Checkpoint 0
 
 | Job | Encoder | Tile | Total (s) | Decode wait (s) | Model (s) | Encode write (s) | Flush (s) | Mux (s) | s/frame total | s/frame model | Peak alloc (MiB) |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| x4 from 360p | libx264 | | | | | | | | | | |
-| x2 from 720p | libx264 | | | | | | | | | | |
-| x4 from 360p | h264_nvenc | | | | | | | | | | |
+| x4 from 360p | libx264 | 0 | n/r | n/r | n/r | n/r | n/r | n/r | ~1.38 | 1.31 (about 95% of total) | n/r |
+| x2 from 720p (x4plus, old path) | libx264 | 0 | n/r | n/r | n/r | n/r | n/r | n/r | ~7.2 | 6.8 | n/r |
+| x4 from 360p | h264_nvenc | yes (usable on Colab) | n/r | 21 | n/r | | | | | | |
 
 ### Encoder benchmark (150 frames, 2560x1440)
 
 | Encoder | OK | Time (s) | Encode fps | Output bytes |
 |---|---|---|---|---|
-| libx264 | | | | |
+| libx264 | yes | n/r | 6.9 | n/r |
 | h264_nvenc | | | | |
 
 ### Verification
 
 | Job | Frames in / out | Duration diff (s) | FPS equal | Audio present | H.264 yuv420p | Size = input x scale | Pass |
 |---|---|---|---|---|---|---|---|
-| x4 from 360p (libx264) | | | | | | | |
-| x2 from 720p (libx264) | | | | | | | |
-| x4 from 360p (nvenc) | | | | | | | |
+| x4 from 360p (libx264) | equal | n/r | yes | yes | yes | yes | PASS |
+| x2 from 720p (libx264) | equal | n/r | yes | yes | yes | yes | PASS |
+| x4 from 360p (nvenc) | equal | n/r | yes | yes | yes | yes | PASS |
 
 ### Anime model smoke test
 
 | Model | Loads and runs | s/frame | Peak alloc (MiB) |
 |---|---|---|---|
-| realesr-animevideov3 | | | |
+| realesr-animevideov3 | yes | 0.16 (640x360 -> 2560x1440) | n/r |
 
-## Implications for presets (fill after results)
+## Implications for presets
 
-- Max safe input per preset on a free T4 (tile used, headroom): TBD
-- Estimated processing time for a 120 s, 30 fps clip per preset: TBD
-- Whether CPU `libx264` at 2560x1440 is a bottleneck versus the model: TBD
+Model time is about 95% of total per frame; decode and encode are negligible, so processing time scales
+with the model's cost per input pixel. Coefficients carried into `web/lib/contracts/presets.ts`
+(`secPerMegapixelFrame`, seconds per frame per million INPUT pixels):
+
+| Preset | Model | s/frame at reference input | Coefficient | Source |
+|---|---|---|---|---|
+| `realesrgan-x4` | RealESRGAN_x4plus | 1.31 at 640x360 | 1.31 / 0.2304 = 5.69 | measured |
+| `realesrgan-x2` | RealESRGAN_x2plus | 1.31 at 1280x720 | 1.31 / 0.9216 = 1.42 | estimate (pixel-unshuffle: body runs at H/2 x W/2, so cost is about x4plus at a quarter of the input pixels) |
+| `realesrgan-anime-x4` | realesr-animevideov3 | 0.16 at 640x360 | 0.16 / 0.2304 = 0.69 | measured |
+| `realesrgan-fast-x4` | realesr-general-x4v3 | 0.16 at 640x360 | 0.69 | estimate (same compact SRVGG family; num_conv 32 vs 16 may be somewhat slower) |
+
+- Old x2 path (x4plus on 720p then downscale) cost 6.8 s/frame, about 5x the native x2plus estimate: the reason `realesrgan-x2` moved to RealESRGAN_x2plus.
+- Estimated time = 60 s fixed (install, model load, transfer) + frames x megapixels x coefficient. Examples at 30 fps:
+  - 720p, 10 s, x2plus: 60 + 300 x 1.31 = about 453 s (7.6 min).
+  - 540p, 120 s, x4plus: about 2.95 s/frame x 3600 = about 177 min, far over budget; the fast preset: about 23 min.
+- Budget: 30 min estimated per job (`MAX_ESTIMATED_SEC`), enforced by the web app (422 `PRESET_TOO_SLOW`). Absolute caps stay: 500 MiB, 120 s, per-preset dimensions.
+- Encoder: h264_nvenc 21 fps at 1440p versus libx264 6.9 fps. Neither is the bottleneck for RRDB presets (>= 0.7 s/frame), but libx264 would cap the compact-model presets near 7 fps, so NVENC stays the default with libx264 as fallback.
 
 ## Decision
 
-TBD. Criteria (from `tasks/todo.md` T3 / Checkpoint 0):
+**Go: Real-ESRGAN on the free Colab T4 is the primary path.**
 
-- [ ] Output frame count equals input and audio is present
-- [ ] Install recipe reproducible; weight SHA-256, s/frame, peak VRAM recorded above
-- [ ] Go / no-go for Real-ESRGAN as the primary path, and the tile / encoder defaults to carry into T16
+- [x] Output frame count equals input and audio is present
+- [x] Install recipe reproducible; weight SHA-256, s/frame recorded above (peak VRAM n/r)
+- [x] Go / no-go for Real-ESRGAN as the primary path, and the tile / encoder defaults to carry into T16
+
+Outcomes:
+
+1. Real-ESRGAN stays the primary runner; tile 0 (fp16) worked at the tested sizes, with the ladder fallback kept for larger inputs; NVENC preferred.
+2. `realesrgan-x2` uses native RealESRGAN_x2plus (the x4plus + outscale 2 path was about 5x slower).
+3. New fast preset `realesrgan-fast-x4` (realesr-general-x4v3, official release v0.2.5.0, `SRVGGNetCompact(num_feat=64, num_conv=32, upscale=4, act_type='prelu')` per `inference_realesrgan_video.py` at the pinned commit) for long or larger clips.
+4. GPU-time budget of 30 min per job replaces the fixed 120 s cap as the main guard; x2plus and fast coefficients are estimates to re-measure on the next Colab run.

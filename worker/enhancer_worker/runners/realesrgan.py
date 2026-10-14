@@ -30,12 +30,14 @@ class ModelSpec:
     weights: str  # key in weights.WEIGHTS
     arch: str  # "rrdb" | "srvgg"
     scale: int  # native scale == output scale (no resizing, no fallback to another model)
+    num_conv: int = 16  # srvgg only: animevideov3 = 16, general-x4v3 = 32 (official inference scripts)
 
 
 MODELS = {
     "realesrgan-x2": ModelSpec("RealESRGAN_x2plus", "rrdb", 2),
     "realesrgan-x4": ModelSpec("RealESRGAN_x4plus", "rrdb", 4),
     "realesrgan-anime-x4": ModelSpec("realesr-animevideov3", "srvgg", 4),
+    "realesrgan-fast-x4": ModelSpec("realesr-general-x4v3", "srvgg", 4, num_conv=32),
 }
 
 
@@ -150,7 +152,7 @@ class TorchEngine:
         else:
             from realesrgan.archs.srvgg_arch import SRVGGNetCompact
 
-            model = SRVGGNetCompact(num_in_ch=3, num_out_ch=3, num_feat=64, num_conv=16, upscale=spec.scale,
+            model = SRVGGNetCompact(num_in_ch=3, num_out_ch=3, num_feat=64, num_conv=spec.num_conv, upscale=spec.scale,
                                     act_type="prelu")
         self.up = RealESRGANer(scale=spec.scale, model_path=str(weights_path), model=model, tile=0, tile_pad=10,
                                pre_pad=0, half=True, device=torch.device("cuda"))

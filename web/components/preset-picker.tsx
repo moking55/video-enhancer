@@ -3,10 +3,18 @@
 import { useRouter } from 'next/navigation';
 import { useEffect, useId, useState, type FormEvent } from 'react';
 
-import { checkPresetCompatibility, type Preset } from '@/lib/contracts/presets';
+import {
+  checkPresetCompatibility,
+  estimateProcessingSec,
+  formatEstimateMinutes,
+  type Preset,
+} from '@/lib/contracts/presets';
 import type { AssetDto } from '@/lib/contracts/uploads';
 
-type PresetOption = Pick<Preset, 'id' | 'label' | 'model' | 'scale' | 'maxInput' | 'limits'> & {
+type PresetOption = Pick<
+  Preset,
+  'id' | 'label' | 'model' | 'scale' | 'maxInput' | 'limits' | 'secPerMegapixelFrame'
+> & {
   note: string | null;
 };
 
@@ -53,14 +61,26 @@ export function PresetPicker(props: { asset: AssetDto; onCreated?: (jobId: strin
     };
   }, []);
 
-  const rows = (presets ?? []).map((preset) => ({
-    preset,
-    compat: checkPresetCompatibility(
-      { ...preset, note: preset.note ?? undefined },
-      toCheckMeta(asset),
-      asset.sizeBytes,
-    ),
-  }));
+  const meta = toCheckMeta(asset);
+  const rows = (presets ?? []).map((preset) => {
+    const estimateSec =
+      meta.width && meta.height && meta.duration
+        ? estimateProcessingSec(preset, {
+            width: meta.width,
+            height: meta.height,
+            durationSec: meta.duration,
+          })
+        : null;
+    return {
+      preset,
+      estimateSec,
+      compat: checkPresetCompatibility(
+        { ...preset, note: preset.note ?? undefined },
+        meta,
+        asset.sizeBytes,
+      ),
+    };
+  });
   const firstUsable = rows.find((r) => r.compat.ok)?.preset.id ?? null;
   const chosen =
     selected && rows.some((r) => r.preset.id === selected && r.compat.ok) ? selected : firstUsable;
@@ -106,7 +126,7 @@ export function PresetPicker(props: { asset: AssetDto; onCreated?: (jobId: strin
     <form onSubmit={submit} className="flex flex-col gap-3">
       <fieldset className="flex flex-col gap-2" disabled={busy}>
         <legend className="mb-1 text-sm font-medium">Choose an enhancement preset</legend>
-        {rows.map(({ preset, compat }) => {
+        {rows.map(({ preset, compat, estimateSec }) => {
           const id = `${groupId}-${preset.id}`;
           const reasonId = `${id}-reason`;
           const noteId = `${id}-note`;
@@ -136,6 +156,11 @@ export function PresetPicker(props: { asset: AssetDto; onCreated?: (jobId: strin
                     {preset.maxInput.height})
                   </span>
                 </label>
+                {estimateSec !== null ? (
+                  <span className="text-sm text-zinc-600 dark:text-zinc-400">
+                    ≈ {formatEstimateMinutes(estimateSec)} on Colab T4 (estimate)
+                  </span>
+                ) : null}
                 {preset.note ? (
                   <span id={noteId} className="text-sm text-zinc-600 dark:text-zinc-400">
                     Note: {preset.note}

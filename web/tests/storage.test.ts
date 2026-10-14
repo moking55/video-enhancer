@@ -12,7 +12,7 @@ import {
 } from '@/lib/storage';
 
 beforeAll(() => {
-  process.env.STORAGE_ENDPOINT = 'https://rustfs.example.test';
+  process.env.STORAGE_ENDPOINT = 'https://account.r2.example.test';
   process.env.STORAGE_BUCKET = 'video-enhancer';
   process.env.STORAGE_ACCESS_KEY_ID = 'AKIATEST';
   process.env.STORAGE_SECRET_ACCESS_KEY = 'secret-test';
@@ -29,12 +29,12 @@ describe('keys', () => {
 describe('presigning (offline)', () => {
   it('PUT: path-style URL, expiry and content-type signed, no checksum params', async () => {
     const url = new URL(await presignPut('inputs/a1.mp4', 'video/mp4'));
-    expect(url.host).toBe('rustfs.example.test');
+    expect(url.host).toBe('account.r2.example.test');
     expect(url.pathname).toBe('/video-enhancer/inputs/a1.mp4');
     expect(url.searchParams.get('X-Amz-Expires')).toBe('900');
     expect(url.searchParams.get('X-Amz-Signature')).toBeTruthy();
     expect(url.searchParams.get('X-Amz-SignedHeaders')).toContain('content-type');
-    expect(url.searchParams.get('X-Amz-Credential')).toContain('/us-east-1/s3/');
+    expect(url.searchParams.get('X-Amz-Credential')).toContain('/auto/s3/');
     expect([...url.searchParams.keys()].some((k) => k.toLowerCase().includes('checksum'))).toBe(
       false,
     );

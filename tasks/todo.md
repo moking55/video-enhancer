@@ -17,19 +17,20 @@ Definition of Done ทุก task: `pnpm typecheck && pnpm lint && pnpm test` �
 - Deps: —
 - Files: `.gitignore`, `.env.example`, `web/*` (create-next-app), `web/vitest.config.ts`, `SPEC.md`
 
-### T2: Spike — RustFS presign/CORS — S ❌ blocked on real endpoint (GET truncation, HEAD 403 flake, no CORS; see docs/spikes/rustfs.md)
+### T2: Spike: R2 presign/CORS — S
+> หมายเหตุ: ความพยายามกับ RustFS ล้มเหลว (GET truncation, HEAD 403 flake, no CORS; ดู `docs/spikes/rustfs.md` เป็นประวัติ) จึงเปลี่ยนไปทดสอบกับ Cloudflare R2 — run: `cd web && npx -y tsx --conditions=react-server --env-file=.env.local scripts/storage-smoke.ts`
 script ที่ใช้ `@aws-sdk/client-s3` (`forcePathStyle`) presign PUT → อัปโหลดไฟล์ทดสอบ → HEAD → presign GET → ดาวน์โหลดเทียบ hash; ตรวจ CORS preflight ด้วย `curl -X OPTIONS -H "Origin: http://localhost:3000"`
 - [ ] PUT/GET ผ่าน presigned URL สำเร็จ hash ตรง
 - [ ] Preflight จาก origin ที่อนุญาตได้ header ถูก; origin อื่นถูกปฏิเสธ
-- [ ] บันทึกผล + เวอร์ชัน RustFS ใน `docs/spikes/rustfs.md` (บันทึกผลแล้ว; เวอร์ชันยังสังเกตไม่ได้ / Server: cloudflare)
-- Verify: `pnpm tsx scripts/rustfs-smoke.ts`
+- [ ] บันทึกผลใน `docs/spikes/r2.md` (มี CORS JSON ที่ต้อง apply ใน R2 dashboard)
+- Verify: `cd web && npx -y tsx --conditions=react-server --env-file=.env.local scripts/storage-smoke.ts`
 - Deps: T1; ผู้ใช้ให้ endpoint/key/bucket/CORS
-- Files: `web/scripts/rustfs-smoke.ts`, `docs/spikes/rustfs.md`
+- Files: `web/scripts/storage-smoke.ts`, `docs/spikes/r2.md`, `docs/spikes/rustfs.md` (ประวัติ)
 
-### T3: Spike — Real-ESRGAN บน Colab T4 — S ⏳ notebook reviewed; waiting for user Colab run
+### T3: Spike — Real-ESRGAN บน Colab T4 — S ✅ ran on Colab 2026-10-14, all verify checks passed
 notebook ทดลอง (`worker/spikes/realesrgan_spike.ipynb`): ติดตั้ง Real-ESRGAN pin commit, แก้ปัญหา `basicsr`/torchvision, รัน x4plus กับคลิป 5 s 720p แบบ decode→enhance→encode (pipe), วัดเวลา/VRAM, ลอง `h264_nvenc`
-- [ ] ได้ output ที่ frame count เท่าต้นฉบับและมีเสียง
-- [ ] สูตรติดตั้งที่ทำซ้ำได้ + weight SHA-256 + เวลา/เฟรม + peak VRAM บันทึกใน `docs/spikes/realesrgan.md`
+- [x] ได้ output ที่ frame count เท่าต้นฉบับและมีเสียง
+- [x] สูตรติดตั้งที่ทำซ้ำได้ + weight SHA-256 + เวลา/เฟรม + peak VRAM บันทึกใน `docs/spikes/realesrgan.md`
 - Verify: ผู้ใช้รันบน Colab แล้วส่งผล cell สรุปกลับมา
 - Deps: — (ขนานได้)
 - Files: `worker/spikes/realesrgan_spike.ipynb`, `docs/spikes/realesrgan.md`
@@ -60,7 +61,7 @@ migration แรก: `assets`, `jobs`, `worker_tokens` ตาม SPEC, enum/chec
 - Deps: T4
 - Files: `web/app/login/page.tsx`, `web/middleware.ts` (หรือ `proxy.ts`), `web/lib/auth.ts`, `web/lib/http.ts`, `web/app/(app)/layout.tsx`
 
-### T6: Storage lib + upload API — M ✅ reviewed (mocks; live RustFS check pending T2)
+### T6: Storage lib + upload API — M ✅ reviewed (mocks; live R2 check pending T2)
 `lib/storage.ts` (presign PUT/GET, HEAD, delete; key = `inputs/{assetId}.mp4`), zod contracts, `POST /uploads` (ตรวจ size ≤ 500 MiB, contentType `video/mp4`), `POST /assets/{id}/complete` (HEAD ขนาดตรง → READY), `GET /assets`
 - [ ] upload ผ่าน presigned URL แล้ว complete → asset READY
 - [ ] complete โดยยังไม่อัปโหลด → 409; ขนาดไม่ตรง → 409
@@ -79,7 +80,7 @@ migration แรก: `assets`, `jobs`, `worker_tokens` ตาม SPEC, enum/chec
 - Files: `web/app/(app)/page.tsx`, `web/components/upload-form.tsx`, `web/components/asset-list.tsx`, `web/lib/client-meta.ts`
 
 ### Checkpoint 1
-- [ ] login + upload ทำงานจริงกับ Supabase dev + RustFS; review กับผู้ใช้
+- [ ] login + upload ทำงานจริงกับ Supabase dev + R2; review กับผู้ใช้
 
 ---
 
@@ -120,7 +121,7 @@ routes ใต้ `/worker/jobs/{id}/…` ทั้ง 4 ตัว ตรวจ `
 - Deps: T10
 - Files: `worker/pyproject.toml`, `worker/enhancer_worker/{api,probe,encode,heartbeat,cli}.py`, `worker/enhancer_worker/runners/mock.py`, `worker/tests/`
 
-### T12: Jobs UI — M ✅ reviewed (real Supabase/RustFS flow pending creds)
+### T12: Jobs UI — M ✅ reviewed (real Supabase/R2 flow pending creds)
 ปุ่ม "Enhance" บน asset → เลือก preset (ปิดตัวที่ไม่รองรับพร้อมเหตุผล) → สร้าง job; รายการ jobs; หน้า `/jobs/[id]` แสดง state/stage/frames/attempts, poll 3 s ตอน active หยุดเมื่อ terminal หรือ tab ซ่อน, แบนเนอร์ "Colab หลุด?" + Requeue, Cancel, Download
 - [ ] เห็น progress เปลี่ยนระหว่าง mock รัน
 - [ ] state ไม่ได้สื่อด้วยสีอย่างเดียว (มีข้อความ)
@@ -130,7 +131,7 @@ routes ใต้ `/worker/jobs/{id}/…` ทั้ง 4 ตัว ตรวจ `
 
 ### T13: Delete asset — S ✅ reviewed (known small race: claim between busy-check and delete)
 `DELETE /assets/{id}` ลบ objects input/outputs + rows (บล็อกถ้ามีงาน RUNNING) + ปุ่มในรายการพร้อม confirm
-- [ ] ลบแล้ว object หายจาก RustFS และ jobs หายจากรายการ
+- [ ] ลบแล้ว object หายจาก R2 และ jobs หายจากรายการ
 - [ ] มีงาน RUNNING → 409
 - Verify: `pnpm test` + manual
 - Deps: T12
@@ -185,6 +186,7 @@ wipe slider + side-by-side, zoom 1×–8× + pan (wheel/drag/คีย์ `+ - 0
 
 ### T16: Real-ESRGAN runner — M ✅ reviewed (72 pytest; GPU path unverified → T17)
 **อัปเดต 2026-10-14:** x2 ใช้ RealESRGAN_x2plus; pipeline 3-thread; NVENC; auto tile/batch — ดู SPEC "Runner performance"
+**อัปเดต 2026-10-14 (ผล T3):** เพิ่ม preset `realesrgan-fast-x4` (realesr-general-x4v3, SRVGG num_conv=32) และงบเวลา GPU 30 นาที (`PRESET_TOO_SLOW`) แทนเพดาน 120 s อย่างเดียว — ดู SPEC "Presets และ limits"
 `runners/realesrgan.py` จากสูตร T3: stream decode→enhance→encode, tile ตาม preset และ OOM fallback ลด tile 1 ครั้ง (บันทึก effective config), ส่ง progress, verify output (frame count, duration, audio); weights ใน Drive ตรวจ SHA-256
 - [ ] pytest ของ logic (ไม่ต้องใช้ GPU: mock model)
 - [ ] รันบน GTX 1650 ในเครื่องกับคลิป 3 s ได้ (ถ้าติดตั้ง CUDA ได้; ถ้าไม่ได้ข้ามไปทดสอบที่ T17)
@@ -192,8 +194,9 @@ wipe slider + side-by-side, zoom 1×–8× + pan (wheel/drag/คีย์ `+ - 0
 - Deps: T3, T11
 - Files: `worker/enhancer_worker/runners/realesrgan.py`, `worker/enhancer_worker/weights.py`, `worker/tests/test_realesrgan.py`, `worker/pyproject.toml`
 
-### T17: Colab notebook + GitHub public + Vercel — M
-`worker/colab_runner.ipynb`: เช็ก GPU → mount Drive → อ่าน `ENHANCER_TOKEN`/`ENHANCER_API` จาก Colab Secrets → `pip install git+…#subdirectory=worker` → `run` แล้วจบ; ไม่มี output ที่เผย URL/token. ตรวจ secret ใน repo → **ถามก่อน** สร้าง GitHub public repo + push → **ถามก่อน** deploy Vercel + env + เพิ่ม origin ใน CORS ของ RustFS
+### T17: Colab notebook + GitHub public + Vercel — M ⏳ notebook ✅ reviewed; remaining: push, Vercel deploy, R2 CORS, real Colab run
+`worker/colab_runner.ipynb`: เช็ก GPU → mount Drive → อ่าน `ENHANCER_TOKEN`/`ENHANCER_API` จาก Colab Secrets → `pip install git+…#subdirectory=worker` → `run` แล้วจบ; ไม่มี output ที่เผย URL/token. ตรวจ secret ใน repo → **ถามก่อน** สร้าง GitHub public repo + push → **ถามก่อน** deploy Vercel + env + เพิ่ม origin ใน CORS ของ R2
+**อัปเดต 2026-10-14:** notebook เสร็จแล้ว (`worker/colab_runner.ipynb` + `worker/README.md`; ตรวจ nbformat + compile ทุก code cell; ยังไม่ได้รันบน Colab จริง). เหลือ: deploy Vercel, เพิ่ม origin ของ Vercel ใน CORS ของ R2, รันจริงบน Colab, `scripts/check-secrets.sh`, push GitHub (ถามก่อน)
 - [ ] Success criterion 1 บน Colab T4 ผ่าน Vercel
 - [ ] Success criterion 5: grep `.next/static` และ notebook ไม่พบ secret
 - [ ] Success criteria 3–4 ผ่านบน deployment

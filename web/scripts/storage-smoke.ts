@@ -1,6 +1,6 @@
 /**
- * RustFS smoke test (T2). Run from web/:
- *   npx -y tsx --conditions=react-server --env-file=.env.local scripts/rustfs-smoke.ts
+ * Object storage smoke test (T2, Cloudflare R2). Run from web/:
+ *   npx -y tsx --conditions=react-server --env-file=.env.local scripts/storage-smoke.ts
  * `--conditions=react-server` makes the `server-only` import in lib/storage.ts a no-op.
  * Only touches keys under `spike/`. Never prints secrets or signed URLs.
  */
@@ -168,7 +168,7 @@ async function main() {
       // Listing is not exported by storage.ts; equivalent client, same options.
       const s3 = new S3Client({
         endpoint: process.env.STORAGE_ENDPOINT!,
-        region: process.env.STORAGE_REGION?.trim() || 'us-east-1',
+        region: process.env.STORAGE_REGION?.trim() || 'auto',
         forcePathStyle: true,
         credentials: {
           accessKeyId: process.env.STORAGE_ACCESS_KEY_ID!,

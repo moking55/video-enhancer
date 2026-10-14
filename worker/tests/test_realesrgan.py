@@ -219,6 +219,8 @@ def test_models_per_preset():
     assert rr.MODELS["realesrgan-x2"] == ModelSpec("RealESRGAN_x2plus", "rrdb", 2)
     assert rr.MODELS["realesrgan-x4"] == ModelSpec("RealESRGAN_x4plus", "rrdb", 4)
     assert rr.MODELS["realesrgan-anime-x4"] == ModelSpec("realesr-animevideov3", "srvgg", 4)
+    assert rr.MODELS["realesrgan-fast-x4"] == ModelSpec("realesr-general-x4v3", "srvgg", 4, num_conv=32)
+    assert rr.MODELS["realesrgan-anime-x4"].num_conv == 16
     assert set(rr.MODELS) == set(RealEsrganRunner.presets)
     assert all(m.weights in weights.WEIGHTS for m in rr.MODELS.values())
 
@@ -345,12 +347,17 @@ def test_nvenc_args_and_encode_cmd_uses_codec_args():
 # --- weights -----------------------------------------------------------------------------------
 
 def test_registry_contents():
-    assert set(weights.WEIGHTS) == {"RealESRGAN_x4plus", "RealESRGAN_x2plus", "realesr-animevideov3"}
+    assert set(weights.WEIGHTS) == {
+        "RealESRGAN_x4plus", "RealESRGAN_x2plus", "realesr-animevideov3", "realesr-general-x4v3",
+    }
     for spec in weights.WEIGHTS.values():
         assert spec.url.startswith("https://github.com/xinntao/Real-ESRGAN/releases/download/")
         assert spec.url.endswith(spec.filename)
         assert spec.sha256 is None or len(spec.sha256) == 64
     assert "/v0.2.1/" in weights.WEIGHTS["RealESRGAN_x2plus"].url
+    general = weights.WEIGHTS["realesr-general-x4v3"]
+    assert "/v0.2.5.0/" in general.url and general.size_bytes == 4885111
+    assert general.sha256 is not None and len(general.sha256) == 64
 
 
 class _Server:
@@ -437,7 +444,7 @@ def test_download_http_error_and_unknown_name(server, tmp_path):
 def test_get_runner_realesrgan_needs_no_torch(tmp_path):
     r = get_runner("realesrgan", str(tmp_path))
     assert r.name == "realesrgan" and r.weights_dir == tmp_path
-    assert set(r.presets) == {"realesrgan-x2", "realesrgan-x4", "realesrgan-anime-x4"}
+    assert set(r.presets) == {"realesrgan-x2", "realesrgan-x4", "realesrgan-anime-x4", "realesrgan-fast-x4"}
 
 
 def test_cli_realesrgan_runs_setup_lazily_and_passes_weights_dir(monkeypatch, tmp_path):
