@@ -245,6 +245,24 @@ describe('POST /api/v1/assets/[id]/complete', () => {
   });
 });
 
+function jobRow(over: Record<string, unknown>) {
+  return {
+    id: 'j',
+    asset_id: ASSET,
+    preset_id: 'realesrgan-x2',
+    state: 'QUEUED',
+    created_at: 'a',
+    stage: null,
+    processed_frames: null,
+    total_frames: null,
+    heartbeat_at: null,
+    started_at: null,
+    cancel_requested: false,
+    error_code: null,
+    ...over,
+  };
+}
+
 describe('GET /api/v1/assets', () => {
   it('lists the owner newest-first, limit 50, excluding DELETED, with latest job', async () => {
     const rows = [
@@ -259,8 +277,16 @@ describe('GET /api/v1/assets', () => {
       }
       return {
         data: [
-          { id: 'j2', asset_id: ASSET, preset_id: 'realesrgan-x2', state: 'RUNNING', created_at: 'b' },
-          { id: 'j1', asset_id: ASSET, preset_id: 'realesrgan-x2', state: 'FAILED', created_at: 'a' },
+          jobRow({
+            id: 'j2',
+            state: 'RUNNING',
+            created_at: 'b',
+            stage: 'enhance',
+            processed_frames: 12,
+            total_frames: 100,
+            heartbeat_at: new Date().toISOString(),
+          }),
+          jobRow({ id: 'j1', state: 'FAILED', created_at: 'a', error_code: 'OOM' }),
         ],
         error: null,
       };
@@ -274,7 +300,18 @@ describe('GET /api/v1/assets', () => {
       ASSET,
       '55555555-5555-4555-8555-555555555555',
     ]);
-    expect(assets[0].latestJob).toMatchObject({ id: 'j2', state: 'RUNNING' });
+    expect(assets[0].latestJob).toEqual({
+      id: 'j2',
+      presetId: 'realesrgan-x2',
+      state: 'RUNNING',
+      createdAt: 'b',
+      stage: 'enhance',
+      processedFrames: 12,
+      totalFrames: 100,
+      stale: false,
+      cancelRequested: false,
+      errorCode: null,
+    });
     expect(assets[1].latestJob).toBeNull();
     expect(assets[0]).not.toHaveProperty('object_key');
 
@@ -283,6 +320,34 @@ describe('GET /api/v1/assets', () => {
     expect(q?.filters).toContainEqual(['neq', 'state', 'DELETED']);
     expect(q?.filters).toContainEqual(['order', 'created_at', { ascending: false }]);
     expect(q?.filters).toContainEqual(['limit', 50]);
+  });
+
+  it('reports stale, cancelRequested and errorCode on the latest job', async () => {
+    resolver = (c) =>
+      c.table === 'assets'
+        ? { data: [assetRow({ id: ASSET, state: 'READY' })], error: null }
+        : {
+            data: [
+              jobRow({
+                id: 'j3',
+                state: 'RUNNING',
+                created_at: 'c',
+                cancel_requested: true,
+                heartbeat_at: '2000-01-01T00:00:00.000Z',
+              }),
+            ],
+            error: null,
+          };
+    const res = await listAssets(new Request('http://x/api/v1/assets'), undefined);
+    const { assets } = await res.json();
+    expect(assets[0].latestJob).toMatchObject({
+      id: 'j3',
+      stale: true,
+      cancelRequested: true,
+      stage: null,
+      processedFrames: null,
+      totalFrames: null,
+    });
   });
 
   it('skips the jobs query when there are no assets', async () => {

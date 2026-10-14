@@ -44,6 +44,13 @@ export const AssetJobSummary = z.object({
   presetId: z.string(),
   state: z.string(),
   createdAt: z.string(),
+  stage: z.string().nullable(),
+  processedFrames: z.number().int().nullable(),
+  totalFrames: z.number().int().nullable(),
+  /** RUNNING with no recent heartbeat ("Colab disconnected?"). */
+  stale: z.boolean(),
+  cancelRequested: z.boolean(),
+  errorCode: z.string().nullable(),
 });
 export type AssetJobSummary = z.infer<typeof AssetJobSummary>;
 

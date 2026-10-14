@@ -1,4 +1,5 @@
 import { withUser } from '@/lib/auth';
+import { isStale } from '@/lib/contracts/jobs';
 import { toAssetDto, type AssetJobSummary } from '@/lib/contracts/uploads';
 import { apiError, json } from '@/lib/http';
 
@@ -20,7 +21,9 @@ export const GET = withUser(async ({ supabase, userId }) => {
   if (assets.length > 0) {
     const { data: jobs, error: jobsErr } = await supabase
       .from('jobs')
-      .select('id, asset_id, preset_id, state, created_at')
+      .select(
+        'id, asset_id, preset_id, state, created_at, stage, processed_frames, total_frames, heartbeat_at, started_at, cancel_requested, error_code',
+      )
       .eq('owner_id', userId)
       .in(
         'asset_id',
@@ -28,6 +31,7 @@ export const GET = withUser(async ({ supabase, userId }) => {
       )
       .order('created_at', { ascending: false });
     if (jobsErr) return apiError(500, 'INTERNAL', jobsErr.message);
+    const now = new Date();
     for (const j of jobs ?? []) {
       if (!latest.has(j.asset_id)) {
         latest.set(j.asset_id, {
@@ -35,6 +39,12 @@ export const GET = withUser(async ({ supabase, userId }) => {
           presetId: j.preset_id,
           state: j.state,
           createdAt: j.created_at,
+          stage: j.stage ?? null,
+          processedFrames: j.processed_frames ?? null,
+          totalFrames: j.total_frames ?? null,
+          stale: isStale(j, now),
+          cancelRequested: j.cancel_requested ?? false,
+          errorCode: j.error_code ?? null,
         });
       }
     }
