@@ -95,11 +95,17 @@ Route Handlers รันบน Node.js runtime (ค่า default; ห้าม�
 | `realesrgan-x4` | RealESRGAN_x4plus | ≤ 960×540 (output ≤ 4K) | 5.69 (วัดจริง) |
 | `realesrgan-anime-x4` | realesr-animevideov3 | ≤ 960×540 | 0.69 (วัดจริง) |
 | `realesrgan-fast-x4` | realesr-general-x4v3 (SRVGGNetCompact, num_conv=32; เร็วกว่า ละเอียดน้อยกว่าเล็กน้อย) | ≤ 960×540 | 0.69 (ประมาณการ ใช้ค่าเดียวกับ anime) |
+| `span-fast-x2` | 2xNomosUni_span_multijpg (SPAN, spandrel, CC-BY-4.0; 2× ทั่วไป เร็ว) | ≤ 1920×1080 | 1.42 (ประมาณการ = 0.25× ของ x4plus ต้องวัดจริงบน T4) |
+| `compact-anime-x2` | 2xHFA2kAVCCompact (Compact, spandrel, CC-BY-4.0; 2× อนิเมะ ฝึกกับ H.264; **รันบน CPU ได้**) | ≤ 1920×1080 | 0.35 (ประมาณการ = 0.5× ของ animevideov3 ต้องวัดจริง) |
+| `span-balanced-x4` | 4xNomosUni_span_multijpg (SPAN, spandrel, CC-BY-4.0) | ≤ 960×540 | 1.42 (ประมาณการ = 0.25× ของ x4plus ต้องวัดจริง) |
+| `plksr-quality-x4` | 4xNomosWebPhoto_RealPLKSR (spandrel, CC-BY-4.0; รัน fp32 เพราะ spandrel รายงานว่าไม่รองรับ fp16) | ≤ 960×540 | 5.69 (ประมาณการ = 1.0× ของ x4plus ต้องวัดจริง) |
 | `seedvr2-*` | กำหนดหลัง spike | กำหนดหลัง spike |
 
 **งบเวลา GPU (2026-10-14):** แทนเพดาน 120 s อย่างเดียว เว็บประมาณเวลา = 60 s (ติดตั้ง/โหลดโมเดล/โอนไฟล์) + จำนวนเฟรม × (ล้านพิกเซล input × ค่าสัมประสิทธิ์ของ preset) และปฏิเสธ (422 `PRESET_TOO_SLOW`, พร้อมแนะนำ preset ที่เร็วกว่าถ้าเข้างบ) เมื่อเกิน `MAX_ESTIMATED_SEC` = 30 นาที; `GET /presets` ส่งค่าสัมประสิทธิ์ให้ UI แสดง "≈ N นาที บน Colab T4" เพดานเดิม (≤ 500 MiB, ≤ 120 s, ขนาดภาพต่อ preset) ยังอยู่
 
 **Measured on T4 (Colab ฟรี, fp16, 2026-10-14, spike T3):** x4plus 640×360 → 1.31 s/เฟรม (tile 0, โมเดล ≈ 95% ของเวลา; decode/encode เล็กน้อย); x4plus 1280×720 (เส้นทาง x2 เดิม) → 6.8 s/เฟรม คิดตามจำนวนพิกเซล input; realesr-animevideov3 → 0.16 s/เฟรม (640×360 → 2560×1440); encoder: h264_nvenc 21 fps ที่ 1440p, libx264 6.9 fps ค่า x2plus และ fast เป็นการประมาณการจนกว่าจะวัดจริง ดู `docs/spikes/realesrgan.md`
+
+**Presets ของ spandrel (2026-10-14, เพิ่ม 4 preset):** รันด้วย engine `spandrel` (`runners/spandrel_engine.py`; ติดตั้ง `spandrel==0.4.2` แบบ `--no-deps` บน Colab ไม่แตะ torch) ผ่าน runner `--runner auto` (ค่าเริ่มต้นของ notebook: Real-ESRGAN + spandrel รวม 8 preset; `--runner realesrgan` เดิมยังใช้ได้ เฉพาะ 4 preset เดิม) weights เป็น `.safetensors` pin ด้วย commit ของ Hugging Face + SHA-256 (`weights.py`; โมเดลและ hash: `docs/research/spandrel-models.md`); spandrel ไม่มี tiler จึงเขียน tiling ซ้อนทับเอง (context 16 px ต่อด้านแล้วตัดทิ้ง ไม่มีรอยต่อ) บันไดเดียวกับเดิม (tile 0 batch 4/2/1 → 512/256/128) fp16 เฉพาะ CUDA ที่ spandrel รายงาน `supports_half` (RealPLKSR ไม่รองรับ → fp32); ค่าสัมประสิทธิ์ 4 preset นี้เป็นประมาณการแบบระมัดระวัง ยังไม่ได้วัดบน T4 (ใช้ `worker/spikes/bench_presets.py`). ลำดับใน UI: เร็ว → สมดุล → คุณภาพ → อนิเมะ; หน้า `/credits` (เครดิตโมเดล) ระบุผู้สร้าง/สัญญาอนุญาตของทุกโมเดลตามข้อกำหนด CC BY 4.0
 
 Input ทุก preset: MP4, H.264, SDR 8-bit, ≤ 120 s, ≤ 500 MiB, เสียง AAC หรือไม่มี (browser ต้องเล่นต้นฉบับได้เพื่อเทียบ)
 VFR → Colab normalize เป็น CFR อัตโนมัติก่อนประมวลผล (เฟรมอาจถูกทำซ้ำ/ตัดทิ้ง): fps เป้าหมาย = ค่ามาตรฐานที่ใกล้ `avg_fps` สุดจาก {24000/1001, 24, 25, 30000/1001, 30, 50, 60000/1001, 60} จำกัดไม่เกิน 30; intermediate H.264 CRF 12 เสียง copy; output เทียบกับไฟล์ที่ normalize แล้ว (จำนวนเฟรม/FPS ของ output = ของ CFR ไม่ใช่ของต้นฉบับ); heartbeat `probe.normalized = {fromAvgFps, toFps}`
@@ -115,13 +121,13 @@ Output: MP4 H.264 yuv420p (h264_nvenc ถ้าใช้ได้ มิฉะ�
 
 **Runner performance (2026-10-14):** decode / GPU / encode แยก thread ต่อด้วยคิวจำกัดขนาด; tile ใหญ่สุดที่ไม่ OOM (เริ่มจาก 0 → 512 → 256 → 128 ตาม VRAM); batch หลายเฟรมเมื่อ tile=0; NVENC เมื่อ feature-test ผ่าน
 
-**CPU fallback (2026-10-14):** ถ้า session Colab ไม่มี GPU (โควตาหมด/GPU ไม่ว่าง) notebook ตัวเลือก `CPU_FALLBACK` (เปิดเป็นค่าเริ่มต้น) ให้ worker รันบน CPU แทนการหยุด (`--device auto|cuda|cpu`, auto = cuda ถ้ามี ไม่งั้น cpu): fp32, ทั้งเฟรม batch 1 (ล้นแรมค่อยลดเป็น tile 512 → 256 → 128), encode ด้วย libx264; **รับเฉพาะ preset Anime 4× (`realesrgan-anime-x4`)** โดยส่ง `presets` ใน claim ตามนั้น (ค่าคงที่เดียว `CPU_PRESETS` ใน runner เพิ่ม preset ได้ภายหลัง) และไม่ส่ง `gpu`; งาน preset อื่นยังเป็น `QUEUED` รอ session ที่มี GPU. ช้ากว่า GPU มาก (ประมาณการ 15–30× ยังไม่ได้วัดจริง) จึง**ประมาณเวลาและงบเวลาฝั่งเว็บยังคิดแบบ GPU (T4) เหมือนเดิม** (เว็บแค่แสดงหมายเหตุ "รันบน CPU ได้เมื่อ GPU ไม่ว่าง (ช้ากว่ามาก)" ที่ preset Anime 4×); worker log ความเร็วจริงต่อ job (`N frames in Xs (Y s/frame, device=cpu|cuda)`) ไว้ใช้ปรับค่าประมาณภายหลัง
+**CPU fallback (2026-10-14):** ถ้า session Colab ไม่มี GPU (โควตาหมด/GPU ไม่ว่าง) notebook ตัวเลือก `CPU_FALLBACK` (เปิดเป็นค่าเริ่มต้น) ให้ worker รันบน CPU แทนการหยุด (`--device auto|cuda|cpu`, auto = cuda ถ้ามี ไม่งั้น cpu): fp32, ทั้งเฟรม batch 1 (ล้นแรมค่อยลดเป็น tile 512 → 256 → 128), encode ด้วย libx264; **รับเฉพาะ preset อนิเมะ: `realesrgan-anime-x4` และ `compact-anime-x2` (เมื่อใช้ `--runner auto`)** โดยส่ง `presets` ใน claim ตามนั้น (ค่าคงที่เดียว `CPU_PRESETS` ใน runner เพิ่ม preset ได้ภายหลัง) และไม่ส่ง `gpu`; งาน preset อื่นยังเป็น `QUEUED` รอ session ที่มี GPU. ช้ากว่า GPU มาก (ประมาณการ 15–30× ยังไม่ได้วัดจริง) จึง**ประมาณเวลาและงบเวลาฝั่งเว็บยังคิดแบบ GPU (T4) เหมือนเดิม** (เว็บแค่แสดงหมายเหตุ "รันบน CPU ได้เมื่อ GPU ไม่ว่าง (ช้ากว่ามาก)" ที่ preset อนิเมะทั้งสอง); worker log ความเร็วจริงต่อ job (`N frames in Xs (Y s/frame, device=cpu|cuda)`) ไว้ใช้ปรับค่าประมาณภายหลัง
 
 ## Tech Stack (pin version จริงตอน scaffold แล้วบันทึกที่นี่)
 
 - Web: Node 24, pnpm, TypeScript strict, Next.js App Router (stable ล่าสุด), `@supabase/ssr`, `@supabase/supabase-js`, `zod`, `@aws-sdk/client-s3`, `@aws-sdk/s3-request-presigner` (`forcePathStyle: true`, region `auto` สำหรับ Cloudflare R2), Tailwind
 - DB: Supabase CLI ผ่าน `pnpm dlx supabase` (migrations + gen types)
-- Colab: Python 3 ของ Colab, `requests`, ffmpeg/ffprobe ของ Colab, Real-ESRGAN official repo pin commit + weight SHA-256; SeedVR2 wrapper เลือกใน spike แล้ว pin commit
+- Colab: Python 3 ของ Colab, `requests`, ffmpeg/ffprobe ของ Colab, Real-ESRGAN official repo pin commit + weight SHA-256, `spandrel==0.4.2` (ติดตั้งตอน setup เท่านั้น; ไม่ใช่ dependency ของ worker/tests); SeedVR2 wrapper เลือกใน spike แล้ว pin commit
 - Weights cache ใน Google Drive (mount) เพื่อไม่ต้องโหลดใหม่ทุก session
 - Repo: **public บน GitHub** — notebook ติดตั้งด้วย `pip install git+https://github.com/<owner>/<repo>#subdirectory=worker`; Vercel deploy จาก repo เดียวกัน
 

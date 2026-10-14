@@ -33,14 +33,24 @@ Open `colab_runner.ipynb` in Google Colab, then:
    **Runtime -> Disconnect and delete runtime** to free the GPU.
 
 Form fields in the settings cell: `REPO_REF` (branch/tag/commit to install), `USE_DRIVE_CACHE`, `WEIGHTS_DIR_DRIVE`,
-`MAX_JOBS` (0 = until empty), `RUNNER` (`realesrgan` or `mock`), `CPU_FALLBACK` (see below). Secrets are never printed; only a masked token and the API host.
+`MAX_JOBS` (0 = until empty), `RUNNER` (`auto`, `realesrgan` or `mock`), `CPU_FALLBACK` (see below). Secrets are never printed; only a masked token and the API host.
+
+### Runners and engines
+
+- `auto` (notebook default): all 8 GPU presets. Each preset names its engine: Real-ESRGAN (`basicsr` + `realesrgan`, installed by
+  `setup_colab.ensure_realesrgan`) or spandrel (`runners/spandrel_engine.py`, `pip install spandrel==0.4.2 --no-deps` by
+  `setup_colab.ensure_spandrel`; Colab's torch is never touched). Spandrel has no tiler, so the engine tiles itself (overlapping
+  tiles, 16 px of context cropped away). Weights are pinned by SHA-256 in `weights.py` (spandrel presets: `.safetensors`).
+- `realesrgan` (legacy, same behaviour as before): only the 4 Real-ESRGAN presets.
+- Model credits (CC-BY-4.0 for the spandrel models): `docs/research/spandrel-models.md` and the web app's `/credits` page.
+- Benchmark all presets on a Colab T4: `spikes/bench_presets.py`.
 
 ### CPU fallback (no GPU)
 
 If the session has no GPU, the notebook with `CPU_FALLBACK` on (the default) runs the worker on the CPU instead of
 stopping (`--device cpu`; the CLI default `--device auto` picks cuda when available, else cpu). On CPU:
 
-- only the **Anime 4x** preset (`realesrgan-anime-x4`) is claimed (`CPU_PRESETS` in `runners/realesrgan.py`); the claim
+- only the anime presets are claimed (`CPU_PRESETS` in `runners/realesrgan.py`: `realesrgan-anime-x4`, plus `compact-anime-x2` with `--runner auto`); the claim
   sends that `presets` filter and no `gpu`, so every other job stays `QUEUED` for a GPU session;
 - fp32, whole frame with batch 1 (tiles 512/256/128 only if RAM runs out), `libx264` encoder;
 - expect it to be far slower than a T4 (guess: 15-30x; not measured yet). The web app's time estimates stay GPU-based.

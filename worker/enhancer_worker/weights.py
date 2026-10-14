@@ -1,4 +1,4 @@
-"""Real-ESRGAN weights: registry of official release files, cached download with SHA-256 check.
+"""Model weights: registry of pinned files (Real-ESRGAN releases, Hugging Face commits), cached download with SHA-256 check.
 
 The cache directory is a parameter (Colab passes a Google Drive path so weights survive sessions).
 Downloads are atomic (temp file in the cache dir, then os.replace), so a killed session never
@@ -21,6 +21,11 @@ from .errors import WorkerError
 _RELEASE = "https://github.com/xinntao/Real-ESRGAN/releases/download"
 
 
+def _hf(repo: str, commit: str, filename: str) -> str:
+    """Hugging Face file pinned by commit hash (not `main`), so the bytes cannot change under the SHA-256."""
+    return f"https://huggingface.co/Phips/{repo}/resolve/{commit}/{filename}"
+
+
 class WeightsError(WorkerError):
     code = "WEIGHTS_FAILED"
 
@@ -34,7 +39,8 @@ class WeightSpec:
     size_bytes: int | None = None
 
 
-# SHA-256 / sizes computed from the official GitHub release assets on 2026-10-14.
+# SHA-256 / sizes computed from the official GitHub release assets on 2026-10-14. The spandrel models are
+# .safetensors (no pickle) by Philip Hofmann, CC-BY-4.0; hashes/sizes: docs/research/spandrel-models.md section 2.1.
 WEIGHTS: Mapping[str, WeightSpec] = {
     s.name: s
     for s in (
@@ -55,6 +61,29 @@ WEIGHTS: Mapping[str, WeightSpec] = {
             "realesr-general-x4v3", "realesr-general-x4v3.pth",
             f"{_RELEASE}/v0.2.5.0/realesr-general-x4v3.pth",
             "8dc7edb9ac80ccdc30c3a5dca6616509367f05fbc184ad95b731f05bece96292", 4885111,
+        ),
+        WeightSpec(
+            "2xNomosUni_span_multijpg", "2xNomosUni_span_multijpg.safetensors",
+            _hf("2xNomosUni_span_multijpg", "ed6111c4cabdaf42b75e6535600d5370cce9e4e2",
+                "2xNomosUni_span_multijpg.safetensors"),
+            "bee2a9c082f2b8f6e7f5db504b36593c24a1a959511f587114c399ca58b9c92c", 4461056,
+        ),
+        WeightSpec(
+            "2xHFA2kAVCCompact", "2xHFA2kAVCCompact.safetensors",
+            _hf("2xHFA2kAVCCompact", "8ba07f8c6953e05cc88e75bdebd34c581f191925", "2xHFA2kAVCCompact.safetensors"),
+            "2a4bedce982752395a16e5fd29961d62783385018158e5db9e63864077a5973e", 1205456,
+        ),
+        WeightSpec(
+            "4xNomosUni_span_multijpg", "4xNomosUni_span_multijpg.safetensors",
+            _hf("4xNomosUni_span_multijpg", "eb7c9845fb088203dcc9b5d94735c2a5f6b6213a",
+                "4xNomosUni_span_multijpg.safetensors"),
+            "3bedff643a1ba51b12e0174ebca62649a930ae3e7b0868be9706d8659d4d32a2", 4492232,
+        ),
+        WeightSpec(
+            "4xNomosWebPhoto_RealPLKSR", "4xNomosWebPhoto_RealPLKSR.safetensors",
+            _hf("4xNomosWebPhoto_RealPLKSR", "49d5da19489e645e870eb076ea84815471f27ef4",
+                "4xNomosWebPhoto_RealPLKSR.safetensors"),
+            "9be0228f98156a100d6636d99b373ed2785b999723f9adc4cca504329ab157f2", 29590440,
         ),
     )
 }

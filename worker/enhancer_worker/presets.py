@@ -14,6 +14,10 @@ _DEFAULT_MAX_INPUT = {
     "realesrgan-x4": (960, 540),
     "realesrgan-anime-x4": (960, 540),
     "realesrgan-fast-x4": (960, 540),
+    "span-fast-x2": (1920, 1080),
+    "compact-anime-x2": (1920, 1080),
+    "span-balanced-x4": (960, 540),
+    "plksr-quality-x4": (960, 540),
     "mock-x2": (1920, 1080),
 }
 

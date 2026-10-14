@@ -62,6 +62,14 @@ async function UserGate({ children }: { children: ReactNode }) {
         </div>
       </header>
       {children}
+      <footer className="border-t border-zinc-200 px-4 py-3 text-sm text-zinc-600 sm:px-6 dark:border-zinc-800 dark:text-zinc-400">
+        <Link
+          href="/credits"
+          className="rounded-md underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+        >
+          เครดิตโมเดล
+        </Link>
+      </footer>
     </>
   );
 }

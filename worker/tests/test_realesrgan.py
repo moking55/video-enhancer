@@ -20,7 +20,7 @@ from enhancer_worker.probe import probe_file
 from enhancer_worker.runners import get_runner
 from enhancer_worker.runners import realesrgan as rr
 from enhancer_worker.runners.realesrgan import (
-    LADDER, AdaptiveUpscaler, InferConfig, ModelSpec, RealEsrganRunner, is_oom,
+    LADDER, AdaptiveUpscaler, AutoRunner, InferConfig, ModelSpec, RealEsrganRunner, is_oom,
 )
 
 W = H = 16
@@ -347,13 +347,17 @@ def test_nvenc_args_and_encode_cmd_uses_codec_args():
 # --- weights -----------------------------------------------------------------------------------
 
 def test_registry_contents():
-    assert set(weights.WEIGHTS) == {
-        "RealESRGAN_x4plus", "RealESRGAN_x2plus", "realesr-animevideov3", "realesr-general-x4v3",
-    }
-    for spec in weights.WEIGHTS.values():
+    realesrgan = {"RealESRGAN_x4plus", "RealESRGAN_x2plus", "realesr-animevideov3", "realesr-general-x4v3"}
+    spandrel = {"2xNomosUni_span_multijpg", "2xHFA2kAVCCompact", "4xNomosUni_span_multijpg",
+                "4xNomosWebPhoto_RealPLKSR"}
+    assert set(weights.WEIGHTS) == realesrgan | spandrel
+    for name in realesrgan:
+        spec = weights.WEIGHTS[name]
         assert spec.url.startswith("https://github.com/xinntao/Real-ESRGAN/releases/download/")
         assert spec.url.endswith(spec.filename)
-        assert spec.sha256 is None or len(spec.sha256) == 64
+    for spec in weights.WEIGHTS.values():
+        assert spec.url.endswith(spec.filename)
+        assert spec.sha256 is not None and len(spec.sha256) == 64  # every weight file is pinned
     assert "/v0.2.1/" in weights.WEIGHTS["RealESRGAN_x2plus"].url
     general = weights.WEIGHTS["realesr-general-x4v3"]
     assert "/v0.2.5.0/" in general.url and general.size_bytes == 4885111
@@ -502,12 +506,17 @@ def test_resolve_device(monkeypatch):
 
 
 def test_supported_presets_per_device():
-    assert rr.CPU_PRESETS == ("realesrgan-anime-x4",)
-    assert rr.supported_presets("cpu") == rr.CPU_PRESETS
+    assert rr.CPU_PRESETS == ("realesrgan-anime-x4", "compact-anime-x2")
+    assert set(rr.CPU_PRESETS) <= set(rr.ALL_MODELS)
+    # `--runner realesrgan` keeps serving only its own four presets: on CPU just Anime 4x
+    assert rr.supported_presets("cpu") == ("realesrgan-anime-x4",)
     assert set(rr.supported_presets("cuda")) == set(rr.MODELS)
-    assert set(rr.CPU_PRESETS) <= set(rr.MODELS)
-    assert RealEsrganRunner(device="cpu").claim_presets() == rr.CPU_PRESETS
+    assert RealEsrganRunner(device="cpu").claim_presets() == ("realesrgan-anime-x4",)
     assert set(RealEsrganRunner(device="cuda").claim_presets()) == set(rr.MODELS)
+    # `--runner auto`: cuda -> every preset, cpu -> the two anime presets
+    assert rr.supported_presets("cpu", rr.ALL_MODELS) == rr.CPU_PRESETS
+    assert AutoRunner(device="cpu").claim_presets() == rr.CPU_PRESETS
+    assert set(AutoRunner(device="cuda").claim_presets()) == set(rr.ALL_MODELS) and len(rr.ALL_MODELS) == 8
 
 
 def test_runner_auto_device(monkeypatch):
@@ -597,7 +606,7 @@ def test_cli_device_flag(monkeypatch, tmp_path):
         cli.main([*base, "--device", "tpu"])
 
 
-def test_run_queue_cpu_claims_only_anime_and_sends_no_gpu(tmp_path, capsys, monkeypatch):
+def test_run_queue_cpu_claims_only_cpu_presets_and_sends_no_gpu(tmp_path, capsys, monkeypatch):
     from enhancer_worker.api import ApiClient
     from fake_api import TOKEN, FakeApi
 
@@ -610,7 +619,7 @@ def test_run_queue_cpu_claims_only_anime_and_sends_no_gpu(tmp_path, capsys, monk
     finally:
         api.stop()
     out = capsys.readouterr().out
-    assert "device: cpu (" in out and "threads) — only Anime 4× jobs will be claimed" in out
+    assert "device: cpu (" in out and "only these presets will be claimed: realesrgan-anime-x4" in out
 
 
 def test_run_queue_cuda_claims_all_and_sends_gpu(tmp_path, capsys, monkeypatch):

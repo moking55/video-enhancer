@@ -1,4 +1,4 @@
-"""Command line: `python -m enhancer_worker run --api URL --runner mock|realesrgan`.
+"""Command line: `python -m enhancer_worker run --api URL --runner mock|realesrgan|auto`.
 
 Processes the queue once (claim until 204) and exits. No sleeping, polling or keepalive.
 """
@@ -144,18 +144,18 @@ def _report_fail(api: ApiClient, job_id: str, attempt_id: str, code: str, messag
 
 
 def claim_filter(runner: Runner) -> list[str]:
-    """Preset ids to claim: what the runner can run on its resolved device (CPU: Anime 4x only)."""
+    """Preset ids to claim: what the runner can run on its resolved device (CPU: the anime presets only)."""
     fn = getattr(runner, "claim_presets", None)
     return list(fn() if fn else runner.presets)
 
 
 def run_queue(api: ApiClient, runner: Runner, work_dir: Path, max_jobs: int | None = None) -> int:
     """Claim and process jobs until the queue is empty (or max_jobs). Returns an exit code."""
-    device = getattr(runner, "device", None)  # only the realesrgan runner has one
+    device = getattr(runner, "device", None)  # only the realesrgan / auto runners have one
     gpu = detect_gpu() if device == "cuda" else None  # on CPU send no gpu info (the field means a GPU)
     presets = claim_filter(runner)
     if device == "cpu":
-        log(f"device: cpu ({os.cpu_count()} threads) \u2014 only Anime 4\u00d7 jobs will be claimed")
+        log(f"device: cpu ({os.cpu_count()} threads) \u2014 only these presets will be claimed: {', '.join(presets)}")
     elif device == "cuda":
         log(f"device: cuda ({gpu['name'] if gpu else 'unknown GPU'})")
     done = 0
@@ -189,8 +189,8 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--weights-dir", default=str(DEFAULT_CACHE_DIR),
                      help="model weights cache (Colab: a Google Drive path); default %(default)s")
     run.add_argument("--device", choices=("auto", "cuda", "cpu"), default="auto",
-                     help="realesrgan only: auto = cuda if available else cpu. On cpu only the Anime 4x "
-                          "preset is claimed (much slower); default %(default)s")
+                     help="realesrgan / auto runners: auto = cuda if available else cpu. On cpu only the CPU-capable "
+                          "anime presets are claimed (much slower); default %(default)s")
     return ap
 
 
@@ -203,13 +203,21 @@ def main(argv: list[str] | None = None) -> int:
     if not token:
         print("error: --token (or env ENHANCER_TOKEN) is required", file=sys.stderr)
         return 2
-    if args.runner == "realesrgan":
-        from .setup_colab import ensure_realesrgan  # lazy: only this runner needs torch & co
+    if args.runner in ("realesrgan", "auto"):
+        from .setup_colab import ensure_realesrgan  # lazy: only these runners need torch & co
 
         try:
             ensure_realesrgan()
         except Exception as e:  # noqa: BLE001
             print(f"error: Real-ESRGAN setup failed: {sanitize(str(e), limit=1500)}", file=sys.stderr)
+            return 2
+    if args.runner == "auto":
+        from .setup_colab import ensure_spandrel
+
+        try:
+            ensure_spandrel()
+        except Exception as e:  # noqa: BLE001
+            print(f"error: spandrel setup failed: {sanitize(str(e), limit=1500)}", file=sys.stderr)
             return 2
     runner = get_runner(args.runner, args.weights_dir, args.device)
 

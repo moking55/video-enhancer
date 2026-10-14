@@ -7,8 +7,21 @@ import {
   listPresets,
   MAX_ESTIMATED_SEC,
   MIB,
+  PRESET_TIERS,
   type Preset,
 } from '@/lib/contracts/presets';
+
+/** Display order: fast -> balanced -> quality -> anime. */
+const PRESET_ORDER = [
+  'span-fast-x2',
+  'realesrgan-fast-x4',
+  'span-balanced-x4',
+  'realesrgan-x2',
+  'plksr-quality-x4',
+  'realesrgan-x4',
+  'compact-anime-x2',
+  'realesrgan-anime-x4',
+];
 
 const preset = (id: string): Preset => {
   const p = getPreset(id);
@@ -166,8 +179,9 @@ describe('registry', () => {
     expect(x2.maxInput).toEqual({ width: 1920, height: 1080 });
     expect(x2.note).toBeUndefined();
     expect(preset('realesrgan-anime-x4').model).toBe('realesr-animevideov3');
-    // Only Anime 4x may run on the worker's CPU fallback (CPU_PRESETS in the worker).
+    // Only the two anime presets may run on the worker's CPU fallback (CPU_PRESETS in the worker).
     expect(listPresets().filter((p) => p.cpuCapable).map((p) => p.id)).toEqual([
+      'compact-anime-x2',
       'realesrgan-anime-x4',
     ]);
     expect(preset('realesrgan-fast-x4')).toMatchObject({
@@ -189,12 +203,7 @@ describe('registry', () => {
   it('hides mock-x2 in production', () => {
     vi.stubEnv('NODE_ENV', 'production');
     vi.stubEnv('ENABLE_MOCK_PRESET', '');
-    expect(listPresets().map((p) => p.id)).toEqual([
-      'realesrgan-x2',
-      'realesrgan-x4',
-      'realesrgan-anime-x4',
-      'realesrgan-fast-x4',
-    ]);
+    expect(listPresets().map((p) => p.id)).toEqual(PRESET_ORDER);
     expect(getPreset('mock-x2')).toBeUndefined();
   });
 
@@ -202,5 +211,91 @@ describe('registry', () => {
     vi.stubEnv('NODE_ENV', 'production');
     vi.stubEnv('ENABLE_MOCK_PRESET', '1');
     expect(getPreset('mock-x2')).toBeDefined();
+  });
+});
+
+describe('spandrel presets', () => {
+  const X4PLUS = 1.31 / 0.2304; // measured T4 anchor, s per input MP
+  const ANIME = 0.16 / 0.2304;
+
+  it('defines the four approved presets with their models, scales and input limits', () => {
+    expect(preset('span-fast-x2')).toMatchObject({
+      label: 'เร็ว 2× (ทั่วไป)',
+      model: '2xNomosUni_span_multijpg',
+      scale: 2,
+      maxInput: { width: 1920, height: 1080 },
+    });
+    expect(preset('compact-anime-x2')).toMatchObject({
+      label: 'เร็ว 2× (อนิเมะ)',
+      model: '2xHFA2kAVCCompact',
+      scale: 2,
+      maxInput: { width: 1920, height: 1080 },
+    });
+    expect(preset('span-balanced-x4')).toMatchObject({
+      label: 'สมดุล 4× (ทั่วไป)',
+      model: '4xNomosUni_span_multijpg',
+      scale: 4,
+      maxInput: { width: 960, height: 540 },
+    });
+    expect(preset('plksr-quality-x4')).toMatchObject({
+      label: 'คุณภาพ 4× (ภาพจริง)',
+      model: '4xNomosWebPhoto_RealPLKSR',
+      scale: 4,
+      maxInput: { width: 960, height: 540 },
+    });
+    for (const id of ['span-fast-x2', 'compact-anime-x2', 'span-balanced-x4', 'plksr-quality-x4']) {
+      expect(preset(id).limits).toEqual({ maxDurationSec: 120, maxSizeBytes: 500 * MIB });
+      expect(preset(id).note).toBeTruthy();
+    }
+  });
+
+  it('uses the agreed (conservative, uncalibrated) cost estimates', () => {
+    expect(preset('span-fast-x2').secPerMegapixelFrame).toBeCloseTo(0.25 * X4PLUS, 8);
+    expect(preset('span-balanced-x4').secPerMegapixelFrame).toBeCloseTo(0.25 * X4PLUS, 8);
+    expect(preset('plksr-quality-x4').secPerMegapixelFrame).toBeCloseTo(X4PLUS, 8);
+    expect(preset('compact-anime-x2').secPerMegapixelFrame).toBeCloseTo(0.5 * ANIME, 8);
+    // PLKSR runs fp32 on a T4, so it is costed above SPAN
+    expect(preset('plksr-quality-x4').secPerMegapixelFrame).toBeGreaterThan(
+      preset('span-balanced-x4').secPerMegapixelFrame,
+    );
+    // 640x360, 10 s, 30 fps = 300 frames
+    const input = { width: 640, height: 360, durationSec: 10 };
+    expect(estimateProcessingSec(preset('span-balanced-x4'), input)).toBeCloseTo(
+      60 + 300 * 0.2304 * 0.25 * X4PLUS,
+      5,
+    );
+  });
+
+  it('keeps the dimension and budget checks working for the new presets', () => {
+    const meta540 = { width: 960, height: 540, duration: 120 };
+    expect(checkPresetCompatibility(preset('plksr-quality-x4'), meta540)).toMatchObject({
+      ok: false,
+      code: 'PRESET_TOO_SLOW',
+    });
+    expect(
+      checkPresetCompatibility(preset('span-balanced-x4'), { ...meta540, duration: 30 }).ok,
+    ).toBe(true);
+    expect(
+      checkPresetCompatibility(preset('compact-anime-x2'), { width: 1920, height: 1080 }).ok,
+    ).toBe(true);
+    expect(
+      checkPresetCompatibility(preset('span-balanced-x4'), { width: 1920, height: 1080 }).ok,
+    ).toBe(false);
+  });
+
+  it('marks only the anime presets cpuCapable and never suggests them', () => {
+    expect(preset('compact-anime-x2')).toMatchObject({ cpuCapable: true, noSuggest: true });
+    expect(preset('plksr-quality-x4').cpuCapable).toBeUndefined();
+    expect(preset('span-fast-x2').cpuCapable).toBeUndefined();
+    expect(preset('span-balanced-x4').cpuCapable).toBeUndefined();
+  });
+
+  it('lists presets in tier order: fast, balanced, quality, anime', () => {
+    const real = listPresets().filter((p) => !p.devOnly);
+    expect(real.map((p) => p.id)).toEqual(PRESET_ORDER);
+    const tiers = real.map((p) => PRESET_TIERS.indexOf(p.tier!));
+    expect(tiers.every((t) => t >= 0)).toBe(true);
+    expect(tiers).toEqual([...tiers].sort((a, b) => a - b));
+    expect(new Set(real.map((p) => p.tier))).toEqual(new Set(PRESET_TIERS));
   });
 });

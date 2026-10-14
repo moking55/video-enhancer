@@ -17,6 +17,10 @@ export const OVERHEAD_SEC = 60;
 /** Assumed frame rate when the browser did not report one. */
 export const DEFAULT_FPS = 30;
 
+/** UI grouping, in display order: fast -> balanced -> quality -> anime. */
+export const PRESET_TIERS = ['fast', 'balanced', 'quality', 'anime'] as const;
+export type PresetTier = (typeof PRESET_TIERS)[number];
+
 export type Preset = {
   id: string;
   label: string;
@@ -27,10 +31,13 @@ export type Preset = {
   maxInput: { width: number; height: number };
   /**
    * Seconds of Colab T4 time per frame per million INPUT pixels (fp16, tile 0).
-   * x4plus and anime are measured (docs/spikes/realesrgan.md); x2plus and fast are estimates.
+   * x4plus and anime are measured (docs/spikes/realesrgan.md); every other preset is an estimate
+   * until calibrated on a T4 (worker/spikes/bench_presets.py).
    */
   secPerMegapixelFrame: number;
   limits: typeof COMMON_LIMITS;
+  /** Display group; the registry below is kept in tier order (the API and UI list presets in that order). */
+  tier?: PresetTier;
   note?: string;
   /** Content-specific model: never offered as the "try this instead" hint. */
   noSuggest?: boolean;
@@ -39,12 +46,55 @@ export type Preset = {
   /**
    * The Colab worker can also run this preset on its CPU fallback (much slower) when no GPU is
    * available. Informational only: estimates and the time budget stay GPU-based.
-   * Keep in sync with `CPU_PRESETS` in worker/enhancer_worker/runners/realesrgan.py.
+   * Keep in sync with `CPU_PRESETS` in worker/enhancer_worker/runners/realesrgan.py
+   * (realesrgan-anime-x4 needs `--runner realesrgan|auto`, compact-anime-x2 needs `--runner auto`).
    */
   cpuCapable?: true;
 };
 
+// T4 anchors (docs/spikes/realesrgan.md): RealESRGAN_x4plus 1.31 s/frame and realesr-animevideov3 0.16 s/frame,
+// both at 640x360 input (0.2304 MP).
+const X4PLUS_SEC_PER_MP = 1.31 / 0.2304;
+const ANIME_V3_SEC_PER_MP = 0.16 / 0.2304;
+
+// Registry order = display order: fast -> balanced -> quality -> anime.
 const ALL_PRESETS: readonly Preset[] = [
+  {
+    id: 'span-fast-x2',
+    label: 'เร็ว 2× (ทั่วไป)',
+    model: '2xNomosUni_span_multijpg',
+    scale: 2,
+    maxInput: { width: 1920, height: 1080 },
+    // estimate — calibrate on T4: SPAN costs about 0.25x x4plus per input MP (fp16, tile 0).
+    secPerMegapixelFrame: 0.25 * X4PLUS_SEC_PER_MP,
+    limits: COMMON_LIMITS,
+    tier: 'fast',
+    note: 'เร็วมาก เหมาะกับวิดีโอทั่วไปที่ถูกบีบอัด (โมเดล SPAN)',
+  },
+  {
+    id: 'realesrgan-fast-x4',
+    label: 'Fast 4× (ทั่วไป)',
+    model: 'realesr-general-x4v3',
+    scale: 4,
+    maxInput: { width: 960, height: 540 },
+    // Estimate: same compact SRVGG family as animevideov3 (num_conv 32 vs 16 may be slower).
+    secPerMegapixelFrame: ANIME_V3_SEC_PER_MP,
+    limits: COMMON_LIMITS,
+    tier: 'fast',
+    note: 'โมเดลเบากว่า เร็วกว่ามาก แต่รายละเอียดลดลงเล็กน้อย',
+  },
+  {
+    id: 'span-balanced-x4',
+    label: 'สมดุล 4× (ทั่วไป)',
+    model: '4xNomosUni_span_multijpg',
+    scale: 4,
+    maxInput: { width: 960, height: 540 },
+    // estimate — calibrate on T4: SPAN costs about 0.25x x4plus per input MP (fp16, tile 0).
+    secPerMegapixelFrame: 0.25 * X4PLUS_SEC_PER_MP,
+    limits: COMMON_LIMITS,
+    tier: 'balanced',
+    note: 'สมดุลระหว่างความเร็วกับรายละเอียด (โมเดล SPAN)',
+  },
   {
     id: 'realesrgan-x2',
     label: 'Real-ESRGAN 2×',
@@ -54,6 +104,20 @@ const ALL_PRESETS: readonly Preset[] = [
     // Estimate: 1.31 s/frame at 1280x720 input (x2plus body runs at half resolution).
     secPerMegapixelFrame: 1.31 / 0.9216,
     limits: COMMON_LIMITS,
+    tier: 'balanced',
+  },
+  {
+    id: 'plksr-quality-x4',
+    label: 'คุณภาพ 4× (ภาพจริง)',
+    model: '4xNomosWebPhoto_RealPLKSR',
+    scale: 4,
+    maxInput: { width: 960, height: 540 },
+    // estimate — calibrate on T4: runs fp32 (spandrel reports no fp16 for RealPLKSR), so conservatively
+    // the same cost as x4plus per input MP.
+    secPerMegapixelFrame: 1.0 * X4PLUS_SEC_PER_MP,
+    limits: COMMON_LIMITS,
+    tier: 'quality',
+    note: 'รายละเอียดดีที่สุดสำหรับภาพถ่าย/ภาพจริง แต่ช้ากว่า (คำนวณแบบ fp32)',
   },
   {
     id: 'realesrgan-x4',
@@ -62,8 +126,24 @@ const ALL_PRESETS: readonly Preset[] = [
     scale: 4,
     maxInput: { width: 960, height: 540 },
     // Measured: 1.31 s/frame at 640x360 input.
-    secPerMegapixelFrame: 1.31 / 0.2304,
+    secPerMegapixelFrame: X4PLUS_SEC_PER_MP,
     limits: COMMON_LIMITS,
+    tier: 'quality',
+  },
+  {
+    id: 'compact-anime-x2',
+    label: 'เร็ว 2× (อนิเมะ)',
+    model: '2xHFA2kAVCCompact',
+    scale: 2,
+    maxInput: { width: 1920, height: 1080 },
+    // estimate — calibrate on T4: same Compact family as animevideov3 (measured 0.69 s per input MP at 4x);
+    // 0.5x as the first guess for 2x (the body runs at input resolution, so the real factor may be nearer 0.8).
+    secPerMegapixelFrame: 0.5 * ANIME_V3_SEC_PER_MP,
+    limits: COMMON_LIMITS,
+    tier: 'anime',
+    noSuggest: true,
+    cpuCapable: true,
+    note: 'ฝึกกับวิดีโออนิเมะที่ถูกบีบอัดแบบ H.264',
   },
   {
     id: 'realesrgan-anime-x4',
@@ -72,21 +152,11 @@ const ALL_PRESETS: readonly Preset[] = [
     scale: 4,
     maxInput: { width: 960, height: 540 },
     // Measured: 0.16 s/frame at 640x360 input.
-    secPerMegapixelFrame: 0.16 / 0.2304,
+    secPerMegapixelFrame: ANIME_V3_SEC_PER_MP,
     limits: COMMON_LIMITS,
+    tier: 'anime',
     noSuggest: true,
     cpuCapable: true,
-  },
-  {
-    id: 'realesrgan-fast-x4',
-    label: 'Fast 4× (ทั่วไป)',
-    model: 'realesr-general-x4v3',
-    scale: 4,
-    maxInput: { width: 960, height: 540 },
-    // Estimate: same compact SRVGG family as animevideov3 (num_conv 32 vs 16 may be slower).
-    secPerMegapixelFrame: 0.16 / 0.2304,
-    limits: COMMON_LIMITS,
-    note: 'โมเดลเบากว่า เร็วกว่ามาก แต่รายละเอียดลดลงเล็กน้อย',
   },
   {
     id: 'mock-x2',

@@ -113,9 +113,9 @@ describe('resolveChosenPresetId', () => {
 });
 
 describe('cpuCapableNoteTh', () => {
-  it('is shown only for the Anime 4x preset', () => {
+  it('is shown only for the anime presets', () => {
     const notes = presets.filter((p) => cpuCapableNoteTh(p) !== null).map((p) => p.id);
-    expect(notes).toEqual(['realesrgan-anime-x4']);
+    expect(notes).toEqual(['compact-anime-x2', 'realesrgan-anime-x4']);
     expect(cpuCapableNoteTh(presets.find((p) => p.id === 'realesrgan-anime-x4')!)).toBe(
       'รันบน CPU ได้เมื่อ GPU ไม่ว่าง (ช้ากว่ามาก)',
     );

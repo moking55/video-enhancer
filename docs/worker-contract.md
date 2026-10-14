@@ -22,7 +22,7 @@ The worker processes the queue until `claim` returns 204, then exits (no polling
 
 Request: `{ "presets"?: string[], "gpu"?: { "name": string, "vramMb": int } }`. Empty body is allowed. `presets` = preset ids the worker can run; the server intersects it with the presets it offers (`mock-x2` only when enabled). Unknown ids are ignored.
 
-CPU fallback: a worker running on CPU sends `presets: ["realesrgan-anime-x4"]` (the only preset it can run there) and omits `gpu`; GPU workers send every preset the runner supports plus `gpu`. Jobs of other presets stay `QUEUED` for a later GPU session. No contract change: `presets` was already an optional filter and `gpu` already optional.
+CPU fallback: a worker running on CPU sends `presets: ["realesrgan-anime-x4", "compact-anime-x2"]` (the only presets it can run there; the legacy `--runner realesrgan` sends just the first) and omits `gpu`; GPU workers send every preset the runner supports plus `gpu`. Jobs of other presets stay `QUEUED` for a later GPU session. No contract change: `presets` was already an optional filter and `gpu` already optional. The spandrel presets (`span-fast-x2`, `compact-anime-x2`, `span-balanced-x4`, `plksr-quality-x4`) are ordinary preset ids; only a worker started with `--runner auto` lists them.
 
 - `204` (no body): nothing claimable (including: no requested preset is offered).
 - `200`:

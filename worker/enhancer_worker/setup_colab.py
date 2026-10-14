@@ -1,7 +1,8 @@
-"""Install recipe for Real-ESRGAN on Colab (from the T3 spike). Idempotent; call before the worker runs.
+"""Install recipes for the Colab runtime (from the T3 spike). Idempotent; call before the worker runs.
 
-    from enhancer_worker.setup_colab import ensure_realesrgan
+    from enhancer_worker.setup_colab import ensure_realesrgan, ensure_spandrel
     ensure_realesrgan()
+    ensure_spandrel()   # only for the spandrel presets (--runner auto)
 
 Never touches torch / torchvision / numpy: Colab's own versions are used. The Real-ESRGAN repo is
 cloned at a pinned commit and put on sys.path (not pip-installed, so its setup.py cannot break);
@@ -31,6 +32,13 @@ LIGHT_DEPS = {
     "addict": "addict", "future": "future", "lmdb": "lmdb", "pyyaml": "yaml",
     "scikit-image": "skimage", "scipy": "scipy", "tqdm": "tqdm", "yapf": "yapf", "requests": "requests",
 }
+
+# spandrel (pip, wheel only): pinned to the version the models were verified with (docs/research/spandrel-models.md)
+SPANDREL_VERSION = "0.4.2"
+# spandrel's dependencies: Colab provides the first three (never installed or upgraded here: that could swap torch);
+# the rest are small pure-Python wheels installed only when missing. pip name -> import name.
+SPANDREL_COLAB_DEPS = ("torch", "torchvision", "numpy")
+SPANDREL_LIGHT_DEPS = {"safetensors": "safetensors", "einops": "einops", "typing_extensions": "typing_extensions"}
 
 _ready_dir: Path | None = None
 
@@ -173,3 +181,35 @@ def ensure_realesrgan(work_dir: str | Path | None = None) -> Path:
     _say(f"Real-ESRGAN {REPO_COMMIT[:7]} ready (basicsr: {basicsr}, patched files: {patched}, {summary})")
     _ready_dir = repo_dir
     return repo_dir
+
+
+def _spandrel_installed() -> bool:
+    from importlib import metadata
+
+    try:
+        return metadata.version("spandrel") == SPANDREL_VERSION
+    except metadata.PackageNotFoundError:
+        return False
+
+
+def ensure_spandrel() -> str:
+    """Install/verify spandrel (pinned) without touching torch. Returns the installed version."""
+    for mod in SPANDREL_COLAB_DEPS:
+        if importlib.util.find_spec(mod) is None:
+            raise RuntimeError(f"spandrel needs {mod}, which the Colab image should provide (not installing it)")
+    missing = [pip for pip, mod in SPANDREL_LIGHT_DEPS.items() if importlib.util.find_spec(mod) is None]
+    if missing:
+        _pip(*missing)
+    if not _spandrel_installed():
+        # --no-deps: every dependency was checked/installed above, so pip cannot replace torch or numpy
+        if _pip("--no-deps", f"spandrel=={SPANDREL_VERSION}", check=False).returncode != 0:
+            _pip("-U", "pip")  # the build backend of an sdist fallback needs a recent pip
+            _pip("--no-deps", f"spandrel=={SPANDREL_VERSION}")
+    importlib.invalidate_caches()
+    code = ("import spandrel; from spandrel import ModelLoader, ImageModelDescriptor;"
+            "print('spandrel', spandrel.__version__ if hasattr(spandrel, '__version__') else '?')")
+    p = _sh([sys.executable, "-c", code], check=False)
+    if p.returncode != 0:
+        raise RuntimeError(f"spandrel import check failed: {p.stderr[-2000:]}")
+    _say(f"spandrel {SPANDREL_VERSION} ready ({p.stdout.strip()})")
+    return SPANDREL_VERSION

@@ -1,5 +1,10 @@
-"""Real-ESRGAN runner (GPU, with a CPU fallback for Anime 4x). torch / basicsr / realesrgan / numpy are imported lazily inside
-TorchEngine (Colab provides them), so this module imports and its logic tests run without them.
+"""Upscale runners (GPU, with a CPU fallback for the anime presets). Two engines sit behind one runner interface:
+`TorchEngine` (Real-ESRGAN: basicsr + realesrgan) and `SpandrelEngine` (runners/spandrel_engine.py), chosen per
+preset by `ModelSpec.engine`. torch / basicsr / realesrgan / spandrel / numpy are imported lazily inside the engines
+(Colab provides or installs them), so this module imports and its logic tests run without them.
+
+  * `RealEsrganRunner` (`--runner realesrgan`, backward compatible): the four Real-ESRGAN presets only
+  * `AutoRunner` (`--runner auto`): Real-ESRGAN and spandrel presets, dispatched per preset
 
 Performance design (SPEC "Runner performance"):
   * decode / GPU / encode run in three threads joined by bounded queues (enhancer_worker.pipeline)
@@ -9,6 +14,8 @@ Performance design (SPEC "Runner performance"):
   * encoder: h264_nvenc when a feature test passes, else libx264 CRF 18
   * CPU fallback (device="cpu"): fp32, whole frame batch 1 (ladder: tile 0, 512, 256, 128), libx264,
     and only the presets in CPU_PRESETS are claimed (the rest stay QUEUED for a GPU session)
+  * both engines expose set_size(w, h), run(cfg, frames) -> frames and cleanup(), so AdaptiveUpscaler and
+    pipeline.run_pipeline are shared unchanged
 """
 
 from __future__ import annotations
@@ -17,31 +24,43 @@ import gc
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from .. import media
 from ..errors import WorkerError
 from ..pipeline import run_pipeline
 from ..presets import Preset
 from ..probe import ProbeInfo
-from ..weights import DEFAULT_CACHE_DIR, ensure_weights
+from ..weights import DEFAULT_CACHE_DIR, WEIGHTS, ensure_weights
 from .base import AbortFn, ProgressFn
 
 
 @dataclass(frozen=True)
 class ModelSpec:
     weights: str  # key in weights.WEIGHTS
-    arch: str  # "rrdb" | "srvgg"
+    arch: str  # realesrgan engine: "rrdb" | "srvgg"; spandrel engine: informational (spandrel detects it)
     scale: int  # native scale == output scale (no resizing, no fallback to another model)
     num_conv: int = 16  # srvgg only: animevideov3 = 16, general-x4v3 = 32 (official inference scripts)
+    engine: str = "realesrgan"  # "realesrgan" (TorchEngine) | "spandrel" (SpandrelEngine)
 
 
+# The four Real-ESRGAN presets (what `--runner realesrgan` serves).
 MODELS = {
     "realesrgan-x2": ModelSpec("RealESRGAN_x2plus", "rrdb", 2),
     "realesrgan-x4": ModelSpec("RealESRGAN_x4plus", "rrdb", 4),
     "realesrgan-anime-x4": ModelSpec("realesr-animevideov3", "srvgg", 4),
     "realesrgan-fast-x4": ModelSpec("realesr-general-x4v3", "srvgg", 4, num_conv=32),
 }
+
+# Spandrel presets (docs/research/spandrel-models.md); weights are pinned in weights.WEIGHTS.
+SPANDREL_MODELS = {
+    "span-fast-x2": ModelSpec("2xNomosUni_span_multijpg", "span", 2, engine="spandrel"),
+    "compact-anime-x2": ModelSpec("2xHFA2kAVCCompact", "compact", 2, engine="spandrel"),
+    "span-balanced-x4": ModelSpec("4xNomosUni_span_multijpg", "span", 4, engine="spandrel"),
+    "plksr-quality-x4": ModelSpec("4xNomosWebPhoto_RealPLKSR", "plksr", 4, engine="spandrel"),
+}
+
+ALL_MODELS = {**MODELS, **SPANDREL_MODELS}  # what `--runner auto` serves
 
 
 @dataclass(frozen=True)
@@ -60,7 +79,8 @@ LADDER: tuple[InferConfig, ...] = (
 CPU_LADDER: tuple[InferConfig, ...] = LADDER[2:]
 
 # Presets the CPU fallback may claim (one place, so more can be added once measured on Colab CPU).
-CPU_PRESETS: tuple[str, ...] = ("realesrgan-anime-x4",)
+# Keep in sync with `cpuCapable` in web/lib/contracts/presets.ts. A runner claims the subset it serves.
+CPU_PRESETS: tuple[str, ...] = ("realesrgan-anime-x4", "compact-anime-x2")
 
 _OOM_HINTS = ("out of memory", "alloc_failed", "not_enough_workspace", "not enough memory",
               "can't allocate memory")
@@ -163,6 +183,7 @@ class TorchEngine:
         self.spec = spec
         self.device = device
         self.half = device == "cuda"
+        self.precision = "fp16" if self.half else "fp32"
         if spec.arch == "rrdb":
             from basicsr.archs.rrdbnet_arch import RRDBNet
 
@@ -248,17 +269,37 @@ def resolve_device(device: str = "auto") -> str:
     return device
 
 
-def supported_presets(device: str) -> tuple[str, ...]:
-    """Preset ids this runner can run on `device` (what it sends as the claim filter)."""
-    return CPU_PRESETS if device == "cpu" else tuple(MODELS)
+
+def supported_presets(device: str, models: Mapping[str, ModelSpec] = MODELS) -> tuple[str, ...]:
+    """Preset ids served from `models` that can run on `device` (what the runner sends as the claim filter)."""
+    if device == "cpu":
+        return tuple(p for p in CPU_PRESETS if p in models)
+    return tuple(models)
 
 
-class RealEsrganRunner:
-    name = "realesrgan"
-    presets = tuple(MODELS)  # every preset the runner knows; see supported_presets for one device
+def default_engine_factory(spec: ModelSpec, weights_path: Path, device: str) -> Any:
+    """Build the engine named by `spec.engine` (lazy imports: torch & co only exist on Colab)."""
+    if spec.engine == "realesrgan":
+        return TorchEngine(spec, weights_path, device)
+    if spec.engine == "spandrel":
+        from .spandrel_engine import SpandrelEngine
+
+        return SpandrelEngine(spec, weights_path, device)
+    raise WorkerError(f"unknown engine {spec.engine!r} for model {spec.weights!r}")
+
+
+class UpscaleRunner:
+    """Preset -> ModelSpec -> engine dispatch on top of the shared AdaptiveUpscaler + pipeline.
+
+    `engine_factory(spec, weights_path, device)` builds an engine; the default picks it by `spec.engine`.
+    A custom factory (tests) is used for every model."""
+
+    name = "upscale"
+    models: Mapping[str, ModelSpec] = MODELS
+    presets: tuple[str, ...] = tuple(MODELS)  # every preset the runner knows; see supported_presets for one device
 
     def __init__(self, weights_dir: str | Path | None = None,
-                 engine_factory: Callable[..., Any] = TorchEngine, device: str = "auto"):
+                 engine_factory: Callable[..., Any] = default_engine_factory, device: str = "auto"):
         self.weights_dir = Path(weights_dir) if weights_dir else DEFAULT_CACHE_DIR
         self._engine_factory = engine_factory
         self.device = resolve_device(device)
@@ -266,7 +307,7 @@ class RealEsrganRunner:
         self.last_config: dict[str, Any] | None = None  # effective config of the last job
 
     def supported_presets(self, device: str | None = None) -> tuple[str, ...]:
-        return supported_presets(device or self.device)
+        return supported_presets(device or self.device, self.models)
 
     def claim_presets(self) -> tuple[str, ...]:
         """What to send as the claim `presets` filter for the resolved device."""
@@ -275,6 +316,10 @@ class RealEsrganRunner:
     def _engine(self, spec: ModelSpec) -> Any:
         if spec.weights not in self._engines:
             path = ensure_weights(spec.weights, self.weights_dir, log=_log)
+            pinned = getattr(WEIGHTS.get(spec.weights), "sha256", None)
+            if spec.engine == "spandrel" and path.suffix.lower() != ".safetensors" and pinned is None:
+                # spandrel would unpickle a .pth: only ever do that for bytes whose SHA-256 was verified
+                raise WorkerError(f"refusing to load unverified pickle weights for {spec.weights!r}")
             self._engines[spec.weights] = self._engine_factory(spec, path, self.device)
         return self._engines[spec.weights]
 
@@ -287,16 +332,16 @@ class RealEsrganRunner:
         on_progress: ProgressFn,
         check_abort: AbortFn,
     ) -> None:
-        spec = MODELS.get(preset.id)
+        spec = self.models.get(preset.id)
         if spec is None:
-            raise WorkerError(f"preset {preset.id!r} is not supported by the realesrgan runner")
+            raise WorkerError(f"preset {preset.id!r} is not supported by the {self.name} runner")
         if preset.scale != spec.scale:
             raise WorkerError(f"preset scale {preset.scale} != native model scale {spec.scale}")
 
         if preset.id not in self.supported_presets():
             raise WorkerError(
                 f"preset {preset.id!r} is not supported on {self.device} (the CPU fallback runs only "
-                f"{', '.join(CPU_PRESETS)}); it needs a GPU session",
+                f"{', '.join(self.supported_presets('cpu'))}); it needs a GPU session",
                 code="UNSUPPORTED_DEVICE",
             )
 
@@ -310,7 +355,11 @@ class RealEsrganRunner:
         codec_args = media.nvenc_args() if nvenc else media.x264_args()
         encoder = "h264_nvenc" if nvenc else "libx264"
         self.last_config = {"tile": cfg.tile, "batch": cfg.batch, "encoder": encoder, "device": self.device}
-        _log(f"realesrgan {preset.id}: device={self.device} tile={cfg.tile} batch={cfg.batch} encoder={encoder}")
+        precision = getattr(engine, "precision", None)
+        if precision:
+            self.last_config["precision"] = precision
+        _log(f"{spec.engine} {preset.id}: device={self.device} tile={cfg.tile} batch={cfg.batch} "
+             f"encoder={encoder}" + (f" precision={precision}" if precision else ""))
 
         ow, oh = media.expected_size(info, spec.scale)
         video_only = output_path.with_suffix(".video.mp4")
@@ -334,3 +383,19 @@ class RealEsrganRunner:
         finally:
             video_only.unlink(missing_ok=True)
         on_progress(frames, info.frames)
+
+
+class RealEsrganRunner(UpscaleRunner):
+    """`--runner realesrgan`: the four Real-ESRGAN presets only (behaviour unchanged)."""
+
+    name = "realesrgan"
+    models = MODELS
+    presets = tuple(MODELS)
+
+
+class AutoRunner(UpscaleRunner):
+    """`--runner auto`: Real-ESRGAN and spandrel presets, each run by the engine its ModelSpec names."""
+
+    name = "auto"
+    models = ALL_MODELS
+    presets = tuple(ALL_MODELS)
