@@ -25,18 +25,18 @@ const isMp4 = (file: FileLike) =>
 export function checkClientLimits(file: FileLike, meta: VideoMeta = {}): string[] {
   const problems: string[] = [];
   if (!isMp4(file) || !/\.mp4$/i.test(file.name)) {
-    problems.push('Only MP4 files (.mp4, video/mp4) are supported.');
+    problems.push('รองรับเฉพาะไฟล์ MP4 (.mp4, video/mp4) เท่านั้น');
   }
   if (file.size <= 0) {
-    problems.push('The file is empty.');
+    problems.push('ไฟล์ว่างเปล่า');
   } else if (file.size > CLIENT_LIMITS.maxBytes) {
     problems.push(
-      `File is ${(file.size / MIB).toFixed(1)} MiB; the limit is ${CLIENT_LIMITS.maxBytes / MIB} MiB.`,
+      `ไฟล์ขนาด ${(file.size / MIB).toFixed(1)} MiB เกินขีดจำกัด (สูงสุด ${CLIENT_LIMITS.maxBytes / MIB} MiB)`,
     );
   }
   if (meta.durationSec !== undefined && meta.durationSec > CLIENT_LIMITS.maxDurationSec) {
     problems.push(
-      `Duration is ${Math.ceil(meta.durationSec)} s; the limit is ${CLIENT_LIMITS.maxDurationSec} s.`,
+      `ความยาว ${Math.ceil(meta.durationSec)} วินาที เกินขีดจำกัด (สูงสุด ${CLIENT_LIMITS.maxDurationSec} วินาที)`,
     );
   }
   if (meta.width !== undefined && meta.height !== undefined) {
@@ -44,7 +44,7 @@ export function checkClientLimits(file: FileLike, meta: VideoMeta = {}): string[
     const short = Math.min(meta.width, meta.height);
     if (long > CLIENT_LIMITS.maxLongSide || short > CLIENT_LIMITS.maxShortSide) {
       problems.push(
-        `Resolution is ${meta.width}x${meta.height}; the limit is ${CLIENT_LIMITS.maxLongSide}x${CLIENT_LIMITS.maxShortSide} (either orientation).`,
+        `ความละเอียด ${meta.width}×${meta.height} เกินขีดจำกัด (สูงสุด ${CLIENT_LIMITS.maxLongSide}×${CLIENT_LIMITS.maxShortSide} ทั้งแนวนอนและแนวตั้ง)`,
       );
     }
   }

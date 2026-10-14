@@ -12,6 +12,7 @@ import {
   stateBadgeClass,
 } from '@/components/job-format';
 import { usePolling } from '@/components/use-polling';
+import { apiErrorText } from '@/lib/error-messages';
 import type { JobDto } from '@/lib/contracts/jobs';
 import type { AssetDto } from '@/lib/contracts/uploads';
 
@@ -28,13 +29,13 @@ export function JobList() {
       const res = await fetch(`/api/v1/jobs?limit=${LIST_LIMIT}`, { cache: 'no-store' });
       const body = await res.json().catch(() => null);
       if (!res.ok) {
-        setError(body?.error?.message ?? `Could not load jobs (${res.status})`);
+        setError(apiErrorText(body, `โหลดรายการงานไม่สำเร็จ (${res.status})`));
         return;
       }
       setJobs(body.jobs as JobDto[]);
       setError(null);
     } catch {
-      setError('Network error while loading jobs.');
+      setError('เชื่อมต่อไม่ได้ขณะโหลดรายการงาน');
     }
   }, []);
 
@@ -67,15 +68,15 @@ export function JobList() {
       </p>
     );
   }
-  if (!jobs) return <p className="text-zinc-600 dark:text-zinc-400">Loading jobs...</p>;
+  if (!jobs) return <p className="text-zinc-600 dark:text-zinc-400">กำลังโหลดรายการงาน...</p>;
   if (jobs.length === 0) {
     return (
       <p className="text-zinc-600 dark:text-zinc-400">
-        No jobs yet. Upload a video on the{' '}
+        ยังไม่มีงาน อัปโหลดวิดีโอที่{' '}
         <Link href="/" className="underline underline-offset-2">
-          home page
+          หน้าแรก
         </Link>{' '}
-        and choose Enhance.
+        แล้วกด &quot;ปรับปรุงคุณภาพ&quot;
       </p>
     );
   }
@@ -91,7 +92,7 @@ export function JobList() {
         {jobs.map((job) => {
           const frames = job.state === 'RUNNING' ? formatFrames(job.processedFrames, job.totalFrames) : null;
           const stage = job.state === 'RUNNING' ? stageText(job.stage) : null;
-          const name = names[job.assetId] ?? `Video ${job.assetId.slice(0, 8)}`;
+          const name = names[job.assetId] ?? `วิดีโอ ${job.assetId.slice(0, 8)}`;
           return (
             <li key={job.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 p-3">
               <Link
@@ -99,7 +100,7 @@ export function JobList() {
                 className="min-w-0 flex-1 truncate font-medium underline underline-offset-2"
               >
                 {name}
-                <span className="sr-only"> ({job.presetId}, open job details)</span>
+                <span className="sr-only"> ({job.presetId} เปิดดูรายละเอียดงาน)</span>
               </Link>
               <span className="text-sm text-zinc-600 dark:text-zinc-400">{job.presetId}</span>
               <span

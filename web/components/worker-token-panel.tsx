@@ -2,6 +2,9 @@
 
 import { useState } from "react";
 
+import { formatDateTime } from "@/components/job-format";
+import { apiErrorText } from "@/lib/error-messages";
+
 type Props = { initialActive: boolean; initialCreatedAt: string | null };
 
 export function WorkerTokenPanel({ initialActive, initialCreatedAt }: Props) {
@@ -15,7 +18,7 @@ export function WorkerTokenPanel({ initialActive, initialCreatedAt }: Props) {
   async function generate() {
     if (
       active &&
-      !window.confirm("Generating a new token revokes the current one. Continue?")
+      !window.confirm("การสร้าง token ใหม่จะทำให้ token ปัจจุบันใช้ไม่ได้อีก ต้องการดำเนินการต่อหรือไม่?")
     ) {
       return;
     }
@@ -26,14 +29,14 @@ export function WorkerTokenPanel({ initialActive, initialCreatedAt }: Props) {
       const res = await fetch("/api/v1/worker-tokens", { method: "POST" });
       const body = await res.json().catch(() => null);
       if (!res.ok) {
-        setError(body?.error?.message ?? `Request failed (${res.status})`);
+        setError(apiErrorText(body, `ส่งคำขอไม่สำเร็จ (${res.status})`));
         return;
       }
       setToken(body.token);
       setCreatedAt(body.createdAt);
       setActive(true);
     } catch {
-      setError("Network error. Try again.");
+      setError("เชื่อมต่อไม่ได้ กรุณาลองอีกครั้ง");
     } finally {
       setBusy(false);
     }
@@ -45,7 +48,7 @@ export function WorkerTokenPanel({ initialActive, initialCreatedAt }: Props) {
       await navigator.clipboard.writeText(token);
       setCopied(true);
     } catch {
-      setError("Could not copy. Select the token and copy it manually.");
+      setError("คัดลอกไม่สำเร็จ กรุณาเลือก token แล้วคัดลอกด้วยตัวเอง");
     }
   }
 
@@ -53,11 +56,11 @@ export function WorkerTokenPanel({ initialActive, initialCreatedAt }: Props) {
     <div className="flex flex-col gap-4">
       <p>
         Worker token:{" "}
-        <strong>{active ? "Active" : "None"}</strong>
+        <strong>{active ? "ใช้งานอยู่" : "ยังไม่มี"}</strong>
         {active && createdAt ? (
           <span className="text-zinc-600 dark:text-zinc-400">
             {" "}
-            (created {new Date(createdAt).toLocaleString()})
+            (สร้างเมื่อ {formatDateTime(createdAt)})
           </span>
         ) : null}
       </p>
@@ -69,7 +72,7 @@ export function WorkerTokenPanel({ initialActive, initialCreatedAt }: Props) {
           disabled={busy}
           className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
         >
-          {busy ? "Generating..." : "Generate new token"}
+          {busy ? "กำลังสร้าง..." : "สร้าง token ใหม่"}
         </button>
       </div>
 
@@ -78,7 +81,7 @@ export function WorkerTokenPanel({ initialActive, initialCreatedAt }: Props) {
       {token ? (
         <div className="flex flex-col gap-2 rounded-md border border-zinc-300 p-4 dark:border-zinc-700">
           <label htmlFor="worker-token" className="text-sm font-medium">
-            New token (shown only once)
+            Token ใหม่ (แสดงครั้งเดียวเท่านั้น)
           </label>
           <div className="flex gap-2">
             <input
@@ -93,11 +96,11 @@ export function WorkerTokenPanel({ initialActive, initialCreatedAt }: Props) {
               onClick={copy}
               className="rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700"
             >
-              {copied ? "Copied" : "Copy"}
+              {copied ? "คัดลอกแล้ว" : "คัดลอก"}
             </button>
           </div>
           <p role="status" className="text-sm">
-            Store it now: it cannot be shown again.
+            กรุณาคัดลอกหรือบันทึกไว้ทันที เนื่องจากจะไม่แสดงอีก
           </p>
         </div>
       ) : null}

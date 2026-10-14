@@ -13,7 +13,7 @@ function LogoutButton() {
         type="submit"
         className="rounded-md border border-zinc-300 px-3 py-1 text-sm dark:border-zinc-700"
       >
-        Log out
+        ออกจากระบบ
       </button>
     </form>
   );
@@ -35,8 +35,8 @@ async function UserGate({ children }: { children: ReactNode }) {
     if (err.code === "UNAUTHENTICATED") redirect("/login");
     return (
       <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col justify-center gap-4 px-6 py-16">
-        <h1 className="text-2xl font-semibold">Not allowed</h1>
-        <p role="alert">This account is not allowed to use this app.</p>
+        <h1 className="text-2xl font-semibold">ไม่มีสิทธิ์เข้าใช้งาน</h1>
+        <p role="alert">บัญชีนี้ไม่มีสิทธิ์ใช้งานแอปนี้</p>
         <div>
           <LogoutButton />
         </div>
@@ -70,7 +70,7 @@ export default function AppLayout({ children }: LayoutProps<"/">) {
   return (
     <Suspense
       fallback={
-        <p className="px-6 py-16 text-zinc-600 dark:text-zinc-400">Loading...</p>
+        <p className="px-6 py-16 text-zinc-600 dark:text-zinc-400">กำลังโหลด...</p>
       }
     >
       <UserGate>{children}</UserGate>

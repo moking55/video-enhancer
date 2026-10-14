@@ -74,7 +74,7 @@ describe('deriveAssetStatus', () => {
     );
     expect(s.label).toBe(T.processing);
     expect(s.tone).toBe('info');
-    expect(s.detail).toBe('Enhancing frames · 25 / 100 frames (25%)');
+    expect(s.detail).toBe('กำลังปรับปรุงเฟรม · 25 / 100 เฟรม (25%)');
     expect(s.actions).toMatchObject({ jobLink: 'progress', cancel: true, enhance: null, deleteEnabled: false });
   });
 

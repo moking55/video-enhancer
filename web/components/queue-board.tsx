@@ -10,6 +10,7 @@ import {
   stateBadgeClass,
 } from '@/components/job-format';
 import { usePolling } from '@/components/use-polling';
+import { apiErrorText } from '@/lib/error-messages';
 import type { QueueItem, QueueResponse } from '@/lib/contracts/queue';
 
 const QUEUE_POLL_MS = 5000;
@@ -24,13 +25,13 @@ export function QueueBoard() {
       const res = await fetch('/api/v1/operator/queue', { cache: 'no-store' });
       const body = await res.json().catch(() => null);
       if (!res.ok) {
-        setError(body?.error?.message ?? `Could not load the queue (${res.status})`);
+        setError(apiErrorText(body, `โหลดคิวไม่สำเร็จ (${res.status})`));
         return;
       }
       setJobs((body as QueueResponse).jobs);
       setError(null);
     } catch {
-      setError('Network error while loading the queue.');
+      setError('เชื่อมต่อไม่ได้ขณะโหลดคิว');
     }
   }, []);
 
@@ -48,7 +49,7 @@ export function QueueBoard() {
       </p>
     );
   }
-  if (!jobs) return <p className="text-zinc-600 dark:text-zinc-400">Loading queue...</p>;
+  if (!jobs) return <p className="text-zinc-600 dark:text-zinc-400">กำลังโหลดคิว...</p>;
 
   const waiting = jobs.filter((j) => j.state === 'QUEUED').length;
 
@@ -61,12 +62,12 @@ export function QueueBoard() {
       ) : null}
       <p role="status" className="rounded-md border border-zinc-300 p-3 text-sm dark:border-zinc-700">
         {waiting > 0
-          ? `${waiting} ${waiting === 1 ? 'job' : 'jobs'} waiting — open the Colab notebook and run it`
-          : 'No jobs waiting'}
+          ? `มีงานรออยู่ในคิว ${waiting} งาน เปิด Colab notebook แล้วกดรัน`
+          : 'ไม่มีงานที่รออยู่'}
       </p>
       {jobs.length === 0 ? (
         <p className="text-zinc-600 dark:text-zinc-400">
-          Nothing queued, running or recently finished.
+          ไม่มีงานที่รอคิว กำลังทำงาน หรือเพิ่งเสร็จ
         </p>
       ) : (
         <ul className="flex flex-col divide-y divide-zinc-200 rounded-md border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
@@ -78,10 +79,10 @@ export function QueueBoard() {
               <li key={job.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 p-3">
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-medium">
-                    {job.filename ?? `Job ${job.id.slice(0, 8)}`}
+                    {job.filename ?? `งาน ${job.id.slice(0, 8)}`}
                   </p>
                   <p className="truncate text-sm text-zinc-600 dark:text-zinc-400">
-                    {job.ownerEmail ?? 'unknown user'}
+                    {job.ownerEmail ?? 'ไม่ทราบผู้ใช้'}
                   </p>
                 </div>
                 <span className="text-sm text-zinc-600 dark:text-zinc-400">{job.presetId}</span>

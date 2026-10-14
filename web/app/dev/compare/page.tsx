@@ -14,7 +14,7 @@ export default function DevComparePage() {
 
   return (
     <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 px-6 py-10">
-      <h1 className="text-2xl font-semibold tracking-tight">Compare viewer (dev)</h1>
+      <h1 className="text-2xl font-semibold tracking-tight">ตัวเปรียบเทียบวิดีโอ (dev)</h1>
       <CompareViewer
         inputUrl="/dev/sample-input.mp4"
         outputUrl="/dev/sample-output.mp4"

@@ -5,12 +5,13 @@ import { useState, type FormEvent } from 'react';
 
 import { PresetOptions, usePresets } from '@/components/preset-options';
 import type { AssetDto } from '@/lib/contracts/uploads';
-import { buildPresetRows, resolveChosenPresetId } from '@/lib/preset-options';
+import { apiErrorText } from '@/lib/error-messages';
+import { buildPresetRows, compatReasonTh, resolveChosenPresetId } from '@/lib/preset-options';
 
 /**
  * "Enhance again" for an existing asset: lists the presets, disables the ones
  * the asset cannot use (with the reason), and creates a job. The server
- * re-checks everything (422 is shown as-is).
+ * re-checks everything (a 422 is shown with a Thai reason).
  */
 export function PresetPicker(props: { asset: AssetDto; onCreated?: (jobId: string) => void }) {
   const { asset, onCreated } = props;
@@ -41,14 +42,22 @@ export function PresetPicker(props: { asset: AssetDto; onCreated?: (jobId: strin
       });
       const body = await res.json().catch(() => null);
       if (!res.ok) {
-        setError(body?.error?.message ?? `Could not create the job (${res.status})`);
+        // 422 PRESET_*: the Thai reason comes from the same pure check the options use.
+        const chosenRow = rows.find((r) => r.preset.id === chosen);
+        const reason = chosenRow ? compatReasonTh(chosenRow.compat, chosenRow.preset.label) : null;
+        const code = body?.error?.code;
+        setError(
+          reason && (code === 'PRESET_INCOMPATIBLE' || code === 'PRESET_TOO_SLOW')
+            ? reason
+            : apiErrorText(body, `สร้างงานไม่สำเร็จ (${res.status})`),
+        );
         return;
       }
       const jobId = String(body.id);
       if (onCreated) onCreated(jobId);
       else router.push(`/jobs/${jobId}`);
     } catch {
-      setError('Network error. Try again.');
+      setError('เชื่อมต่อไม่ได้ กรุณาลองอีกครั้ง');
     } finally {
       setBusy(false);
     }
@@ -62,7 +71,7 @@ export function PresetPicker(props: { asset: AssetDto; onCreated?: (jobId: strin
     );
   }
   if (!presets) {
-    return <p className="text-sm text-zinc-600 dark:text-zinc-400">Loading presets...</p>;
+    return <p className="text-sm text-zinc-600 dark:text-zinc-400">กำลังโหลดรายการ preset...</p>;
   }
 
   return (
@@ -81,11 +90,11 @@ export function PresetPicker(props: { asset: AssetDto; onCreated?: (jobId: strin
           disabled={!chosen || busy}
           className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
         >
-          {busy ? 'Creating job...' : 'Start enhancing'}
+          {busy ? 'กำลังสร้างงาน...' : 'เริ่มปรับปรุงคุณภาพ'}
         </button>
         {!chosen ? (
           <span className="ml-3 text-sm text-zinc-600 dark:text-zinc-400">
-            No preset fits this video.
+            ไม่มี preset ที่รองรับวิดีโอนี้
           </span>
         ) : null}
       </div>

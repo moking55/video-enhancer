@@ -3,45 +3,47 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { formatDateTime } from '@/components/job-format';
 import { deriveAssetStatus, hasActiveJob, type StatusTone } from '@/components/asset-status';
 import { PresetPicker } from '@/components/preset-picker';
 import { usePolling } from '@/components/use-polling';
 import { ASSETS_CHANGED_EVENT } from '@/lib/client-meta';
 import { MIB } from '@/lib/contracts/presets';
+import { apiErrorText } from '@/lib/error-messages';
 import type { AssetDto } from '@/lib/contracts/uploads';
 
 /** User-facing strings of this component (status texts live in asset-status.ts). */
 const TEXT = {
-  heading: 'Your videos',
-  refresh: 'Refresh',
-  loading: 'Loading...',
-  empty: 'No videos yet. Upload one above.',
-  statusLabel: 'Status',
-  size: 'Size',
-  resolution: 'Resolution / length',
-  uploaded: 'Uploaded',
+  heading: 'วิดีโอของคุณ',
+  refresh: 'รีเฟรช',
+  loading: 'กำลังโหลด...',
+  empty: 'ยังไม่มีวิดีโอ อัปโหลดได้ที่ด้านบน',
+  statusLabel: 'สถานะ',
+  size: 'ขนาด',
+  resolution: 'ความละเอียด / ความยาว',
+  uploaded: 'อัปโหลดเมื่อ',
   preset: 'Preset',
-  unknown: 'unknown',
-  viewProgress: 'View progress',
-  compare: 'Compare & download',
-  viewDetails: 'View details',
-  enhance: 'Enhance',
-  enhanceAgain: 'Enhance again',
-  cancel: 'Cancel',
-  cancelling: 'Cancelling…',
-  delete: 'Delete',
-  deleting: 'Deleting...',
-  confirmCancel: 'Cancel this job? A running job stops at its next progress check.',
-  cancelRequested: 'Cancel requested.',
-  cancelFailed: (status: number) => `Could not cancel (${status})`,
-  networkCancel: 'Network error. The job was not cancelled.',
-  loadFailed: (status: number) => `Could not load files (${status})`,
-  networkLoad: 'Network error while loading files.',
+  unknown: 'ไม่ทราบ',
+  viewProgress: 'ดูความคืบหน้า',
+  compare: 'เปรียบเทียบและดาวน์โหลด',
+  viewDetails: 'ดูรายละเอียด',
+  enhance: 'ปรับปรุงคุณภาพ',
+  enhanceAgain: 'ปรับปรุงคุณภาพอีกครั้ง',
+  cancel: 'ยกเลิก',
+  cancelling: 'กำลังยกเลิก…',
+  delete: 'ลบ',
+  deleting: 'กำลังลบ...',
+  confirmCancel: 'ต้องการยกเลิกงานนี้หรือไม่? งานที่กำลังทำอยู่จะหยุดเมื่อถึงจุดตรวจสอบความคืบหน้าถัดไป',
+  cancelRequested: 'ส่งคำขอยกเลิกแล้ว',
+  cancelFailed: (status: number) => `ยกเลิกไม่สำเร็จ (${status})`,
+  networkCancel: 'เชื่อมต่อไม่ได้ งานยังไม่ถูกยกเลิก',
+  loadFailed: (status: number) => `โหลดรายการไฟล์ไม่สำเร็จ (${status})`,
+  networkLoad: 'เชื่อมต่อไม่ได้ขณะโหลดรายการไฟล์',
   confirmDelete: (name: string) =>
-    `Delete "${name}"? The original file, all enhanced results and their jobs will be removed. This cannot be undone.`,
-  deleted: (name: string) => `Deleted "${name}".`,
-  deleteFailed: (status: number) => `Delete failed (${status})`,
-  networkDelete: 'Network error. Nothing was deleted.',
+    `ต้องการลบ "${name}" หรือไม่? ไฟล์ต้นฉบับ ผลลัพธ์ที่ปรับปรุงแล้ว และงานที่เกี่ยวข้องทั้งหมดจะถูกลบ และไม่สามารถกู้คืนได้`,
+  deleted: (name: string) => `ลบ "${name}" แล้ว`,
+  deleteFailed: (status: number) => `ลบไม่สำเร็จ (${status})`,
+  networkDelete: 'เชื่อมต่อไม่ได้ ยังไม่มีการลบไฟล์',
 } as const;
 
 /** Re-fetch interval while any row has a queued or running job. */
@@ -68,8 +70,8 @@ function formatSize(bytes: number): string {
 function formatDetails(asset: AssetDto): string {
   const { width, height, durationSec } = asset.clientMeta;
   const parts: string[] = [];
-  if (width && height) parts.push(`${width}x${height}`);
-  if (durationSec) parts.push(`${durationSec.toFixed(1)} s`);
+  if (width && height) parts.push(`${width}×${height}`);
+  if (durationSec) parts.push(`${durationSec.toFixed(1)} วินาที`);
   return parts.length > 0 ? parts.join(', ') : TEXT.unknown;
 }
 
@@ -87,7 +89,7 @@ export function AssetList() {
       const res = await fetch('/api/v1/assets', { cache: 'no-store' });
       const body = await res.json().catch(() => null);
       if (!res.ok) {
-        setLoadError(body?.error?.message ?? TEXT.loadFailed(res.status));
+        setLoadError(apiErrorText(body, TEXT.loadFailed(res.status)));
         return;
       }
       setAssets(body.assets as AssetDto[]);
@@ -122,7 +124,7 @@ export function AssetList() {
         setNotice(TEXT.cancelRequested);
       } else {
         const body = await res.json().catch(() => null);
-        setNotice(body?.error?.message ?? TEXT.cancelFailed(res.status));
+        setNotice(apiErrorText(body, TEXT.cancelFailed(res.status)));
       }
       // Either way show the truth (the job may have moved on).
       await load();
@@ -147,7 +149,7 @@ export function AssetList() {
         return;
       }
       const body = await res.json().catch(() => null);
-      setNotice(body?.error?.message ?? TEXT.deleteFailed(res.status));
+      setNotice(apiErrorText(body, TEXT.deleteFailed(res.status)));
     } catch {
       setNotice(TEXT.networkDelete);
     } finally {
@@ -226,7 +228,7 @@ export function AssetList() {
                   <dt>{TEXT.uploaded}</dt>
                   <dd>
                     <time dateTime={asset.createdAt}>
-                      {new Date(asset.createdAt).toLocaleString()}
+                      {formatDateTime(asset.createdAt)}
                     </time>
                   </dd>
                   {job ? (

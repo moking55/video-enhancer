@@ -2,19 +2,19 @@ import type { JobDto, JobState } from "@/lib/contracts/jobs";
 
 /** Plain-text state names: state is never conveyed by color alone. */
 export const JOB_STATE_TEXT: Record<JobState, string> = {
-  QUEUED: "Queued",
-  RUNNING: "Running",
-  SUCCEEDED: "Succeeded",
-  FAILED: "Failed",
-  CANCELLED: "Cancelled",
+  QUEUED: "อยู่ในคิว",
+  RUNNING: "กำลังประมวลผล",
+  SUCCEEDED: "สำเร็จ",
+  FAILED: "ล้มเหลว",
+  CANCELLED: "ยกเลิกแล้ว",
 };
 
 const STAGE_TEXT: Record<string, string> = {
-  download: "Downloading input",
-  probe: "Checking input",
-  enhance: "Enhancing frames",
-  encode: "Encoding video",
-  upload: "Uploading result",
+  download: "กำลังดาวน์โหลดวิดีโอต้นฉบับ",
+  probe: "กำลังตรวจสอบวิดีโอ",
+  enhance: "กำลังปรับปรุงเฟรม",
+  encode: "กำลังเข้ารหัสวิดีโอ",
+  upload: "กำลังอัปโหลดผลลัพธ์",
 };
 
 export function isActiveState(state: JobState): boolean {
@@ -24,7 +24,7 @@ export function isActiveState(state: JobState): boolean {
 /** State label for a job, including the pending-cancel case. */
 export function jobStateText(job: Pick<JobDto, "state" | "cancelRequested" | "stale">): string {
   if (isActiveState(job.state) && job.cancelRequested) return "กำลังยกเลิก…";
-  if (job.state === "RUNNING" && job.stale) return "Running (no signal)";
+  if (job.state === "RUNNING" && job.stale) return "กำลังประมวลผล (ไม่มีสัญญาณ)";
   return JOB_STATE_TEXT[job.state];
 }
 
@@ -43,15 +43,17 @@ export function formatFrames(processed: number | null, total: number | null): st
   if (processed === null && total === null) return null;
   const pct = progressPercent(processed, total);
   if (total !== null && total > 0) {
-    return `${processed ?? 0} / ${total} frames${pct === null ? "" : ` (${pct}%)`}`;
+    return `${processed ?? 0} / ${total} เฟรม${pct === null ? "" : ` (${pct}%)`}`;
   }
-  return `${processed ?? 0} frames`;
+  return `${processed ?? 0} เฟรม`;
 }
+
+const DATE_TIME = new Intl.DateTimeFormat("th-TH", { dateStyle: "medium", timeStyle: "short" });
 
 export function formatDateTime(iso: string | null): string {
   if (!iso) return "—";
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString();
+  return Number.isNaN(d.getTime()) ? "—" : DATE_TIME.format(d);
 }
 
 /** Short badge classes; the text label carries the meaning, color only reinforces it. */

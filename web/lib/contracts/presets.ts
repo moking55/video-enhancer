@@ -41,7 +41,7 @@ export type Preset = {
 const ALL_PRESETS: readonly Preset[] = [
   {
     id: 'realesrgan-x2',
-    label: 'Real-ESRGAN 2x',
+    label: 'Real-ESRGAN 2×',
     model: 'RealESRGAN_x2plus',
     scale: 2,
     maxInput: { width: 1920, height: 1080 },
@@ -51,7 +51,7 @@ const ALL_PRESETS: readonly Preset[] = [
   },
   {
     id: 'realesrgan-x4',
-    label: 'Real-ESRGAN 4x',
+    label: 'Real-ESRGAN 4×',
     model: 'RealESRGAN_x4plus',
     scale: 4,
     maxInput: { width: 960, height: 540 },
@@ -61,7 +61,7 @@ const ALL_PRESETS: readonly Preset[] = [
   },
   {
     id: 'realesrgan-anime-x4',
-    label: 'Real-ESRGAN Anime 4x',
+    label: 'Real-ESRGAN Anime 4×',
     model: 'realesr-animevideov3',
     scale: 4,
     maxInput: { width: 960, height: 540 },
@@ -72,24 +72,24 @@ const ALL_PRESETS: readonly Preset[] = [
   },
   {
     id: 'realesrgan-fast-x4',
-    label: 'Fast 4x (general)',
+    label: 'Fast 4× (ทั่วไป)',
     model: 'realesr-general-x4v3',
     scale: 4,
     maxInput: { width: 960, height: 540 },
     // Estimate: same compact SRVGG family as animevideov3 (num_conv 32 vs 16 may be slower).
     secPerMegapixelFrame: 0.16 / 0.2304,
     limits: COMMON_LIMITS,
-    note: 'Lighter model, much faster, slightly less detail',
+    note: 'โมเดลเบากว่า เร็วกว่ามาก แต่รายละเอียดลดลงเล็กน้อย',
   },
   {
     id: 'mock-x2',
-    label: 'Mock 2x (dev only)',
+    label: 'Mock 2× (เฉพาะ dev)',
     model: 'mock',
     scale: 2,
     maxInput: { width: 1920, height: 1080 },
     secPerMegapixelFrame: 0.01,
     limits: COMMON_LIMITS,
-    note: 'Plain ffmpeg scale for end-to-end testing without a GPU',
+    note: 'ขยายภาพด้วย ffmpeg ธรรมดา ใช้ทดสอบระบบโดยไม่ต้องใช้ GPU',
     devOnly: true,
   },
 ];
@@ -137,9 +137,31 @@ export function formatEstimateMinutes(sec: number): string {
   return `${min < 10 ? min.toFixed(1) : Math.round(min)} min`;
 }
 
+/**
+ * Structured form of a compatibility failure, so the UI can render the reason
+ * in its own language from the numbers instead of parsing the English `reason`.
+ */
+export type CompatIssue =
+  | { kind: 'dimensions'; width: number; height: number; maxLong: number; maxShort: number }
+  | { kind: 'duration'; durationSec: number; maxDurationSec: number }
+  | { kind: 'size'; maxMiB: number }
+  | {
+      kind: 'too_slow';
+      estimateSec: number;
+      limitMin: number;
+      /** Another preset that would fit, or null ("try a shorter or smaller video"). */
+      suggestion: { label: string; sec: number } | null;
+    };
+
 export type PresetCompatibility =
   | { ok: true }
-  | { ok: false; code: 'PRESET_INCOMPATIBLE' | 'PRESET_TOO_SLOW'; reason: string };
+  | {
+      ok: false;
+      code: 'PRESET_INCOMPATIBLE' | 'PRESET_TOO_SLOW';
+      /** English text sent as the API error `message` (a contract). */
+      reason: string;
+      issue: CompatIssue;
+    };
 
 const num = (v: unknown): number | undefined =>
   typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : undefined;
@@ -168,28 +190,39 @@ export function checkPresetCompatibility(
     string,
     unknown
   >;
-  const fail = (reason: string): PresetCompatibility => ({
+  const fail = (reason: string, issue: CompatIssue): PresetCompatibility => ({
     ok: false,
     code: 'PRESET_INCOMPATIBLE',
     reason,
+    issue,
   });
 
   const w = num(meta.width);
   const h = num(meta.height);
   if (w !== undefined && h !== undefined && !fitsDimensions(preset, w, h)) {
     const { width: mw, height: mh } = preset.maxInput;
+    const maxLong = Math.max(mw, mh);
+    const maxShort = Math.min(mw, mh);
     return fail(
-      `Input ${w}x${h} exceeds ${preset.label} limit (${Math.max(mw, mh)}x${Math.min(mw, mh)}, either orientation)`,
+      `Input ${w}x${h} exceeds ${preset.label} limit (${maxLong}x${maxShort}, either orientation)`,
+      { kind: 'dimensions', width: w, height: h, maxLong, maxShort },
     );
   }
 
   const duration = num(meta.duration);
   if (duration !== undefined && duration > preset.limits.maxDurationSec) {
-    return fail(`Duration ${Math.round(duration)} s exceeds ${preset.limits.maxDurationSec} s`);
+    return fail(`Duration ${Math.round(duration)} s exceeds ${preset.limits.maxDurationSec} s`, {
+      kind: 'duration',
+      durationSec: duration,
+      maxDurationSec: preset.limits.maxDurationSec,
+    });
   }
 
   if (sizeBytes !== undefined && sizeBytes > preset.limits.maxSizeBytes) {
-    return fail(`File exceeds ${preset.limits.maxSizeBytes / MIB} MiB`);
+    return fail(`File exceeds ${preset.limits.maxSizeBytes / MIB} MiB`, {
+      kind: 'size',
+      maxMiB: preset.limits.maxSizeBytes / MIB,
+    });
   }
 
   if (w !== undefined && h !== undefined && duration !== undefined) {
@@ -209,6 +242,12 @@ export function checkPresetCompatibility(
         ok: false,
         code: 'PRESET_TOO_SLOW',
         reason: `Estimated ${formatEstimateMinutes(sec)} on Colab T4 with ${preset.label}, over the ${MAX_ESTIMATED_SEC / 60} min limit.${hint}`,
+        issue: {
+          kind: 'too_slow',
+          estimateSec: sec,
+          limitMin: MAX_ESTIMATED_SEC / 60,
+          suggestion: fits[0] ? { label: fits[0].p.label, sec: fits[0].sec } : null,
+        },
       };
     }
   }

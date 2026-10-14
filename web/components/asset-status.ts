@@ -3,18 +3,18 @@ import type { AssetDto } from '@/lib/contracts/uploads';
 
 /** User-facing strings of the asset status column (kept together for translation). */
 export const ASSET_STATUS_TEXT = {
-  uploading: 'Uploading',
-  ready: 'Ready',
-  queued: 'Queued (waiting for Colab)',
-  processing: 'Processing',
-  stale: 'Colab disconnected?',
-  cancelling: 'Cancelling…',
-  done: 'Done',
-  failed: 'Failed',
-  cancelled: 'Cancelled',
-  deleted: 'Deleted',
+  uploading: 'กำลังอัปโหลด',
+  ready: 'พร้อมใช้งาน',
+  queued: 'อยู่ในคิว (รอ Colab)',
+  processing: 'กำลังประมวลผล',
+  stale: 'Colab อาจขาดการเชื่อมต่อ?',
+  cancelling: 'กำลังยกเลิก…',
+  done: 'สำเร็จ',
+  failed: 'ล้มเหลว',
+  cancelled: 'ยกเลิกแล้ว',
+  deleted: 'ลบแล้ว',
   deleteBlockedActive:
-    'Cannot delete while a job is queued or running. Cancel the job first.',
+    'ไม่สามารถลบได้ขณะที่มีงานอยู่ในคิวหรือกำลังประมวลผล กรุณายกเลิกงานก่อน',
 } as const;
 
 export type StatusTone = 'neutral' | 'info' | 'warning' | 'success' | 'danger';

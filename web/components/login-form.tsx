@@ -31,13 +31,13 @@ export function LoginForm() {
         password,
       });
       if (signInError) {
-        setError("Sign-in failed. Check your email and password.");
+        setError("เข้าสู่ระบบไม่สำเร็จ กรุณาตรวจสอบอีเมลและรหัสผ่าน");
         return;
       }
       router.replace("/");
       router.refresh();
     } catch {
-      setError("Could not reach the server. Try again.");
+      setError("เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ กรุณาลองอีกครั้ง");
     } finally {
       setPending(false);
     }
@@ -62,7 +62,7 @@ export function LoginForm() {
       </p>
       <div className="flex flex-col gap-1">
         <label htmlFor="email" className="text-sm font-medium">
-          Email
+          อีเมล
         </label>
         <input
           id="email"
@@ -75,7 +75,7 @@ export function LoginForm() {
       </div>
       <div className="flex flex-col gap-1">
         <label htmlFor="password" className="text-sm font-medium">
-          Password
+          รหัสผ่าน
         </label>
         <input
           id="password"
@@ -91,7 +91,7 @@ export function LoginForm() {
         disabled={pending}
         className="rounded-md bg-zinc-900 px-4 py-2 font-medium text-white disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900"
       >
-        {pending ? "Signing in..." : "Sign in"}
+        {pending ? "กำลังเข้าสู่ระบบ..." : "เข้าสู่ระบบ"}
       </button>
     </form>
   );

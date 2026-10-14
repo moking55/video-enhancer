@@ -124,7 +124,7 @@ describe('PRESET_TOO_SLOW budget', () => {
     expect(r).toMatchObject({ ok: false, code: 'PRESET_TOO_SLOW' });
     if (r.ok) throw new Error('unreachable');
     expect(r.reason).toMatch(/Estimated \d+ min/);
-    expect(r.reason).toContain('Fast 4x (general)');
+    expect(r.reason).toContain('Fast 4× (ทั่วไป)');
   });
 
   it('accepts the same clip on the fast preset (inside the budget)', () => {

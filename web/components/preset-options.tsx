@@ -2,7 +2,8 @@
 
 import { useEffect, useId, useState } from 'react';
 
-import { formatEstimateMinutes } from '@/lib/contracts/presets';
+import { apiErrorText } from '@/lib/error-messages';
+import { compatReasonTh, formatEstimateMinutesTh } from '@/lib/preset-options';
 import type { PresetOption, PresetRow } from '@/lib/preset-options';
 
 export type PresetsState = { presets: PresetOption[] | null; loadError: string | null };
@@ -22,14 +23,14 @@ export function usePresets(): PresetsState {
         if (!res.ok) {
           setState({
             presets: null,
-            loadError: body?.error?.message ?? `Could not load presets (${res.status})`,
+            loadError: apiErrorText(body, `โหลดรายการ preset ไม่สำเร็จ (${res.status})`),
           });
           return;
         }
         setState({ presets: body.presets as PresetOption[], loadError: null });
       } catch {
         if (!cancelled) {
-          setState({ presets: null, loadError: 'Network error while loading presets.' });
+          setState({ presets: null, loadError: 'เชื่อมต่อไม่ได้ขณะโหลดรายการ preset' });
         }
       }
     }, 0);
@@ -50,7 +51,7 @@ export function PresetOptions(props: {
   disabled?: boolean;
   legend?: string;
 }) {
-  const { rows, chosen, onChange, disabled = false, legend = 'Choose an enhancement preset' } = props;
+  const { rows, chosen, onChange, disabled = false, legend = 'เลือก preset สำหรับปรับปรุงคุณภาพ' } = props;
   const groupId = useId();
 
   return (
@@ -82,23 +83,23 @@ export function PresetOptions(props: {
               <label htmlFor={id} className={unusable ? 'text-zinc-500' : undefined}>
                 {preset.label}{' '}
                 <span className="text-sm text-zinc-600 dark:text-zinc-400">
-                  (output {preset.scale}x, input up to {preset.maxInput.width}x
+                  (ผลลัพธ์ {preset.scale}×, อินพุตสูงสุด {preset.maxInput.width}×
                   {preset.maxInput.height})
                 </span>
               </label>
               {estimateSec !== null ? (
                 <span className="text-sm text-zinc-600 dark:text-zinc-400">
-                  ≈ {formatEstimateMinutes(estimateSec)} on Colab T4 (estimate)
+                  ≈ {formatEstimateMinutesTh(estimateSec)}บน Colab T4 (โดยประมาณ)
                 </span>
               ) : null}
               {preset.note ? (
                 <span id={noteId} className="text-sm text-zinc-600 dark:text-zinc-400">
-                  Note: {preset.note}
+                  หมายเหตุ: {preset.note}
                 </span>
               ) : null}
               {unusable ? (
                 <span id={reasonId} className="text-sm text-red-700 dark:text-red-400">
-                  Not available: {compat.reason}
+                  ใช้ไม่ได้: {compatReasonTh(compat, preset.label)}
                 </span>
               ) : null}
             </div>

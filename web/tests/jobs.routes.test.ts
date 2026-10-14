@@ -169,7 +169,7 @@ describe('POST /api/v1/jobs', () => {
     expect(res.status).toBe(422);
     const body = await res.json();
     expect(body.error.code).toBe('PRESET_TOO_SLOW');
-    expect(body.error.message).toContain('Fast 4x (general)');
+    expect(body.error.message).toContain('Fast 4× (ทั่วไป)');
     expect(calls.some((c) => c.op === 'insert')).toBe(false);
   });
 

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { CompareViewer } from '@/components/compare/compare-viewer';
 import { JobStatus } from '@/components/job-status';
+import { apiErrorText } from '@/lib/error-messages';
 import type { JobDto } from '@/lib/contracts/jobs';
 import type { AssetDto } from '@/lib/contracts/uploads';
 import type { JobMediaResponse } from '@/lib/media-info';
@@ -53,13 +54,13 @@ export function JobDetail({ jobId }: { jobId: string }) {
       const res = await fetch(`/api/v1/jobs/${jobId}/media`, { cache: 'no-store' });
       const body = await res.json().catch(() => null);
       if (!res.ok) {
-        setMediaError(body?.error?.message ?? `Could not load the videos (${res.status})`);
+        setMediaError(apiErrorText(body, `โหลดวิดีโอไม่สำเร็จ (${res.status})`));
         return;
       }
       setMedia(body as JobMediaResponse);
       setMediaError(null);
     } catch {
-      setMediaError('Network error while loading the videos.');
+      setMediaError('เชื่อมต่อไม่ได้ขณะโหลดวิดีโอ');
     }
   }, [jobId]);
 
@@ -89,13 +90,13 @@ export function JobDetail({ jobId }: { jobId: string }) {
       {succeeded ? (
         <section aria-labelledby="compare-heading" className="flex flex-col gap-3">
           <h2 id="compare-heading" className="text-xl font-semibold">
-            Compare
+            เปรียบเทียบ
           </h2>
           {mediaError ? (
             <p role="alert" className="text-sm text-red-700 dark:text-red-400">
               {mediaError}{' '}
               <button type="button" className="underline" onClick={() => void loadMedia()}>
-                Try again
+                ลองอีกครั้ง
               </button>
             </p>
           ) : null}
@@ -110,18 +111,17 @@ export function JobDetail({ jobId }: { jobId: string }) {
             />
           ) : media?.output ? (
             <p role="alert" className="text-sm text-red-700 dark:text-red-400">
-              The result has no size information, so it cannot be compared here. Use the download
-              button instead.
+              วิดีโอผลลัพธ์ไม่มีข้อมูลขนาด จึงไม่สามารถเปรียบเทียบในหน้านี้ได้ กรุณาใช้ปุ่มดาวน์โหลดแทน
             </p>
           ) : !mediaError ? (
-            <p className="text-sm text-zinc-600 dark:text-zinc-400">Loading videos...</p>
+            <p className="text-sm text-zinc-600 dark:text-zinc-400">กำลังโหลดวิดีโอ...</p>
           ) : null}
         </section>
       ) : null}
 
       <p>
         <Link href="/jobs" className="text-sm underline underline-offset-2">
-          Back to all jobs
+          กลับไปหน้างานทั้งหมด
         </Link>
       </p>
     </div>

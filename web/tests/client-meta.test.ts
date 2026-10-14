@@ -43,7 +43,7 @@ describe('checkClientLimits', () => {
   it('rejects duration above 120 s', () => {
     const msgs = checkClientLimits(mp4(), { durationSec: 120.5 });
     expect(msgs).toHaveLength(1);
-    expect(msgs[0]).toMatch(/121 s/);
+    expect(msgs[0]).toMatch(/121 วินาที/);
   });
 
   it('rejects resolution beyond 1920x1080 in either orientation', () => {

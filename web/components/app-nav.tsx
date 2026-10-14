@@ -14,18 +14,18 @@ function isActive(href: string, pathname: string): boolean {
 export function AppNav({ isOperator }: { isOperator: boolean }) {
   const pathname = usePathname();
   const items: NavItem[] = [
-    { href: '/', label: 'Upload' },
-    { href: '/jobs', label: 'Jobs' },
+    { href: '/', label: 'อัปโหลด' },
+    { href: '/jobs', label: 'งาน' },
     ...(isOperator
       ? [
-          { href: '/queue', label: 'Queue' },
-          { href: '/settings', label: 'Settings' },
+          { href: '/queue', label: 'คิว' },
+          { href: '/settings', label: 'ตั้งค่า' },
         ]
       : []),
   ];
 
   return (
-    <nav aria-label="Main">
+    <nav aria-label="เมนูหลัก">
       <ul className="flex flex-wrap items-center gap-1">
         {items.map((item) => {
           const active = isActive(item.href, pathname);

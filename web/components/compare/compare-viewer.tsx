@@ -67,7 +67,7 @@ export function CompareViewer({
   const [failedKey, setFailedKey] = useState<string | null>(null);
   const urlKey = `${inputUrl}|${outputUrl}`;
   const error =
-    failedKey === urlKey ? "Could not load a video. The link may have expired; reloading it." : null;
+    failedKey === urlKey ? "โหลดวิดีโอไม่สำเร็จ ลิงก์อาจหมดอายุ กำลังโหลดใหม่" : null;
 
   const sync = useSyncedVideos(masterRef, followerRef, { fps: safeFps });
   const zoom = useZoomPan(viewportRef, mode === "side" ? 2 : 1);
@@ -188,7 +188,7 @@ export function CompareViewer({
     <div
       tabIndex={0}
       role="group"
-      aria-label="Compare original and enhanced video. Keyboard shortcuts are listed below the controls."
+      aria-label="เปรียบเทียบวิดีโอต้นฉบับกับวิดีโอที่ปรับปรุงแล้ว ดูแป้นพิมพ์ลัดได้ใต้ปุ่มควบคุม"
       onKeyDown={onKeyDown}
       className="flex flex-col gap-3 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 dark:focus-visible:ring-blue-400"
     >
@@ -214,13 +214,13 @@ export function CompareViewer({
               src={outputUrl}
               preload="auto"
               playsInline
-              aria-label="Enhanced video"
+              aria-label="วิดีโอที่ปรับปรุงแล้ว"
               className="h-full w-full object-contain"
               onError={handleVideoError}
             />
           </ZoomPanLayer>
           <span className={`${LABEL} ${wipeMode ? "right-2" : "left-2"}`}>
-            Enhanced {outputWidth}×{outputHeight}
+            ปรับปรุงแล้ว {outputWidth}×{outputHeight}
           </span>
         </div>
 
@@ -240,24 +240,24 @@ export function CompareViewer({
               preload="auto"
               playsInline
               muted
-              aria-label="Original video"
+              aria-label="วิดีโอต้นฉบับ"
               className="h-full w-full object-contain"
               onError={handleVideoError}
             />
           </ZoomPanLayer>
-          <span className={`${LABEL} left-2`}>Original</span>
+          <span className={`${LABEL} left-2`}>ต้นฉบับ</span>
         </div>
 
         {wipeMode ? (
           <div
             role="slider"
             tabIndex={0}
-            aria-label="Wipe divider"
+            aria-label="เส้นแบ่งเปรียบเทียบ"
             aria-orientation="horizontal"
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={Math.round(clampWipe(wipe) * 100)}
-            aria-valuetext={`Original ${Math.round(clampWipe(wipe) * 100)}%, enhanced ${
+            aria-valuetext={`ต้นฉบับ ${Math.round(clampWipe(wipe) * 100)}%, ปรับปรุงแล้ว ${
               100 - Math.round(clampWipe(wipe) * 100)
             }%`}
             onPointerDown={onDividerDown}
@@ -285,36 +285,36 @@ export function CompareViewer({
 
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" onClick={sync.togglePlay} className={BUTTON} aria-keyshortcuts="Space">
-          {sync.playing ? "Pause" : "Play"}
+          {sync.playing ? "หยุดชั่วคราว" : "เล่น"}
         </button>
         <button
           type="button"
           onClick={() => sync.stepFrame(-1)}
           className={BUTTON}
           aria-keyshortcuts=","
-          title="Previous frame (, or ←)"
+          title="เฟรมก่อนหน้า (, หรือ ←)"
         >
-          Previous frame
+          เฟรมก่อนหน้า
         </button>
         <button
           type="button"
           onClick={() => sync.stepFrame(1)}
           className={BUTTON}
           aria-keyshortcuts="."
-          title="Next frame (. or →)"
+          title="เฟรมถัดไป (. หรือ →)"
         >
-          Next frame
+          เฟรมถัดไป
         </button>
         <span className="ml-auto text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
-          {formatTime(sync.currentTime)} / {formatTime(sync.duration)} · Frame {shownFrame}
+          {formatTime(sync.currentTime)} / {formatTime(sync.duration)} · เฟรมที่ {shownFrame}
           {frames > 0 ? ` / ${frames}` : ""}
         </span>
       </div>
 
       <input
         type="range"
-        aria-label="Seek"
-        aria-valuetext={`${formatTime(sync.currentTime)}, frame ${shownFrame}`}
+        aria-label="ตำแหน่งเวลา"
+        aria-valuetext={`${formatTime(sync.currentTime)}, เฟรมที่ ${shownFrame}`}
         min={0}
         max={sync.duration > 0 ? sync.duration : 0}
         step="any"
@@ -325,14 +325,14 @@ export function CompareViewer({
       />
 
       <div className="flex flex-wrap items-center gap-2">
-        <div role="group" aria-label="View mode" className="flex gap-1">
+        <div role="group" aria-label="โหมดการแสดงผล" className="flex gap-1">
           <button
             type="button"
             aria-pressed={wipeMode}
             onClick={() => setMode("wipe")}
             className={`${BUTTON} ${wipeMode ? BUTTON_ON : ""}`}
           >
-            Wipe
+            เส้นแบ่ง
           </button>
           <button
             type="button"
@@ -340,18 +340,18 @@ export function CompareViewer({
             onClick={() => setMode("side")}
             className={`${BUTTON} ${!wipeMode ? BUTTON_ON : ""}`}
           >
-            Side by side
+            เทียบข้างกัน
           </button>
         </div>
 
-        <div role="group" aria-label="Zoom" className="flex items-center gap-1">
+        <div role="group" aria-label="ซูม" className="flex items-center gap-1">
           <button
             type="button"
             onClick={zoom.zoomOut}
             disabled={!zoomed}
             className={BUTTON}
-            aria-label="Zoom out"
-            title="Zoom out (-)"
+            aria-label="ซูมออก"
+            title="ซูมออก (-)"
           >
             −
           </button>
@@ -363,8 +363,8 @@ export function CompareViewer({
             onClick={zoom.zoomIn}
             disabled={zoom.view.scale >= 8}
             className={BUTTON}
-            aria-label="Zoom in"
-            title="Zoom in (+)"
+            aria-label="ซูมเข้า"
+            title="ซูมเข้า (+)"
           >
             +
           </button>
@@ -373,9 +373,9 @@ export function CompareViewer({
             onClick={zoom.reset}
             disabled={!zoomed}
             className={BUTTON}
-            title="Reset zoom (0)"
+            title="รีเซ็ตซูม (0)"
           >
-            Reset zoom
+            รีเซ็ตซูม
           </button>
         </div>
 
@@ -384,9 +384,9 @@ export function CompareViewer({
           aria-pressed={pixelated}
           onClick={() => setPixelated((p) => !p)}
           className={`${BUTTON} ${pixelated ? BUTTON_ON : ""}`}
-          title="Pixelated shows exact pixels when zoomed; smooth interpolates"
+          title="โหมดพิกเซลแสดงพิกเซลจริงเมื่อซูม โหมดเรียบเนียนจะทำให้ภาพนุ่มนวลขึ้น"
         >
-          {pixelated ? "Pixelated" : "Smooth"}
+          {pixelated ? "ภาพแบบพิกเซล" : "ภาพแบบเรียบเนียน"}
         </button>
 
         <button
@@ -394,24 +394,24 @@ export function CompareViewer({
           aria-pressed={soundOn}
           onClick={() => setSoundOn((s) => !s)}
           className={`${BUTTON} ${soundOn ? BUTTON_ON : ""}`}
-          title="Sound comes from the enhanced video; the original is always muted"
+          title="เสียงมาจากวิดีโอที่ปรับปรุงแล้ว ส่วนวิดีโอต้นฉบับจะปิดเสียงเสมอ"
         >
-          {soundOn ? "Sound on" : "Sound off"}
+          {soundOn ? "เสียง: เปิด" : "เสียง: ปิด"}
         </button>
       </div>
 
       <details className="text-sm text-zinc-600 dark:text-zinc-400">
-        <summary className="cursor-pointer">Keyboard shortcuts</summary>
+        <summary className="cursor-pointer">แป้นพิมพ์ลัด</summary>
         <ul className="mt-2 list-disc space-y-1 pl-5">
-          <li>Click the viewer or Tab to focus it first.</li>
-          <li>Space: play or pause</li>
-          <li>, and . (or ← and → while paused): previous and next frame</li>
-          <li>← and → while playing: seek 5 seconds</li>
-          <li>[ and ] (Shift for larger steps) or Ctrl + ← and →: move the wipe divider</li>
-          <li>The divider is focusable: ←, →, Home and End move it</li>
-          <li>+ and −: zoom 1× to 8×, 0: reset zoom</li>
-          <li>Shift + arrow keys: pan while zoomed in</li>
-          <li>Mouse: wheel zooms at the cursor, drag pans, drag the divider to wipe</li>
+          <li>คลิกที่ตัวเล่นวิดีโอหรือกด Tab เพื่อเปิดใช้งานแป้นพิมพ์ลัด</li>
+          <li>Space: เล่นหรือหยุดชั่วคราว</li>
+          <li>, และ . (หรือ ← และ → ขณะหยุด): เฟรมก่อนหน้าและเฟรมถัดไป</li>
+          <li>← และ → ขณะเล่น: ข้ามครั้งละ 5 วินาที</li>
+          <li>[ และ ] (กด Shift เพื่อขยับทีละมากขึ้น) หรือ Ctrl + ← และ →: ขยับเส้นแบ่ง</li>
+          <li>โฟกัสที่เส้นแบ่งได้ แล้วใช้ ←, →, Home และ End เพื่อขยับ</li>
+          <li>+ และ −: ซูม 1× ถึง 8×, 0: รีเซ็ตซูม</li>
+          <li>Shift + ปุ่มลูกศร: เลื่อนภาพขณะซูมเข้า</li>
+          <li>เมาส์: หมุนล้อเมาส์เพื่อซูมตรงตำแหน่งเคอร์เซอร์ ลากเพื่อเลื่อนภาพ และลากเส้นแบ่งเพื่อเปรียบเทียบ</li>
         </ul>
       </details>
     </div>

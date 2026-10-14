@@ -1,6 +1,7 @@
 import {
   checkPresetCompatibility,
   estimateProcessingSec,
+  type CompatIssue,
   type Preset,
   type PresetCompatibility,
 } from '@/lib/contracts/presets';
@@ -65,4 +66,37 @@ export function resolveChosenPresetId(
 ): string | null {
   if (selected && rows.some((r) => r.preset.id === selected && r.compat.ok)) return selected;
   return defaultPresetId(rows);
+}
+
+/** "7.6 นาที" style label for the Thai UI (see `formatEstimateMinutes` for the English one). */
+export function formatEstimateMinutesTh(sec: number): string {
+  const min = sec / 60;
+  if (min < 1) return '< 1 นาที';
+  return `${min < 10 ? min.toFixed(1) : Math.round(min)} นาที`;
+}
+
+/**
+ * Thai reason for an unusable preset, built from the structured issue (never
+ * by parsing the English `reason`). `presetLabel` is the preset the issue is about.
+ */
+export function describeCompatIssueTh(issue: CompatIssue, presetLabel: string): string {
+  switch (issue.kind) {
+    case 'dimensions':
+      return `วิดีโอขนาด ${issue.width}×${issue.height} เกินที่ ${presetLabel} รองรับ (สูงสุด ${issue.maxLong}×${issue.maxShort} ทั้งแนวนอนและแนวตั้ง)`;
+    case 'duration':
+      return `ความยาว ${Math.round(issue.durationSec)} วินาที เกินขีดจำกัด ${issue.maxDurationSec} วินาที`;
+    case 'size':
+      return `ไฟล์ใหญ่เกิน ${issue.maxMiB} MiB`;
+    case 'too_slow': {
+      const base = `คาดว่าใช้เวลาประมาณ ${formatEstimateMinutesTh(issue.estimateSec)}บน Colab T4 เมื่อใช้ ${presetLabel} เกินขีดจำกัด ${issue.limitMin} นาที`;
+      return issue.suggestion
+        ? `${base} ลองใช้ ${issue.suggestion.label} (ประมาณ ${formatEstimateMinutesTh(issue.suggestion.sec)})`
+        : `${base} ลองใช้วิดีโอที่สั้นลงหรือเล็กลง`;
+    }
+  }
+}
+
+/** Thai reason of a failed compatibility check; null when the preset is usable. */
+export function compatReasonTh(compat: PresetCompatibility, presetLabel: string): string | null {
+  return compat.ok ? null : describeCompatIssueTh(compat.issue, presetLabel);
 }

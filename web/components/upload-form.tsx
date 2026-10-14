@@ -12,35 +12,36 @@ import {
 } from '@/lib/client-meta';
 import { MIB } from '@/lib/contracts/presets';
 import type { CreateUploadResponse } from '@/lib/contracts/uploads';
-import { buildPresetRows, resolveChosenPresetId } from '@/lib/preset-options';
+import { apiErrorText } from '@/lib/error-messages';
+import { buildPresetRows, compatReasonTh, resolveChosenPresetId } from '@/lib/preset-options';
 
 /** User-facing strings of this component (kept together for translation). */
 const TEXT = {
-  networkError: 'Network error. Check your connection and retry.',
-  requestFailed: (status: number) => `Request failed (${status})`,
-  uploadFailed: (status: number) => `Upload failed (${status}).`,
-  linkExpired: ' The upload link may have expired.',
-  networkUploading: 'Network error while uploading.',
-  uploadCancelled: 'Upload was cancelled.',
-  resolutionUnknown: ' (resolution and duration could not be read)',
-  fileLabel: '1. Video file (MP4)',
-  fileHint: 'MP4 only, up to 500 MiB, 120 s and 1920x1080.',
-  reading: 'Reading video details...',
-  cannotUpload: 'This file cannot be uploaded:',
-  loadingPresets: 'Loading presets...',
-  presetLegend: '2. Choose an enhancement preset',
-  noPresetFits: 'No preset fits this video. Try a shorter or smaller file.',
-  progressLabel: 'Upload progress',
-  queuing: 'Upload complete. Adding to the queue...',
-  queuedPrefix: 'Queued:',
-  viewJob: 'View job',
-  jobFailedPrefix: 'Your video was uploaded, but it could not be queued: ',
-  somethingWrong: 'Something went wrong.',
-  tryAgain: 'Try again',
-  alreadyUploaded: 'The file is already uploaded; trying again will not upload it twice.',
-  btnUploading: 'Uploading...',
-  btnQueuing: 'Queuing...',
-  btnIdle: 'Upload & enhance',
+  networkError: 'เชื่อมต่อไม่ได้ กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองอีกครั้ง',
+  requestFailed: (status: number) => `ส่งคำขอไม่สำเร็จ (${status})`,
+  uploadFailed: (status: number) => `อัปโหลดไม่สำเร็จ (${status})`,
+  linkExpired: ' ลิงก์อัปโหลดอาจหมดอายุแล้ว',
+  networkUploading: 'เชื่อมต่อไม่ได้ขณะอัปโหลด',
+  uploadCancelled: 'ยกเลิกการอัปโหลดแล้ว',
+  resolutionUnknown: ' (อ่านความละเอียดและความยาวไม่ได้)',
+  fileLabel: '1. ไฟล์วิดีโอ (MP4)',
+  fileHint: 'รองรับเฉพาะ MP4 ขนาดไม่เกิน 500 MiB ยาวไม่เกิน 120 วินาที และความละเอียดไม่เกิน 1920×1080',
+  reading: 'กำลังอ่านข้อมูลวิดีโอ...',
+  cannotUpload: 'ไม่สามารถอัปโหลดไฟล์นี้ได้:',
+  loadingPresets: 'กำลังโหลดรายการ preset...',
+  presetLegend: '2. เลือก preset สำหรับปรับปรุงคุณภาพ',
+  noPresetFits: 'ไม่มี preset ที่รองรับวิดีโอนี้ ลองใช้ไฟล์ที่สั้นลงหรือมีความละเอียดต่ำลง',
+  progressLabel: 'ความคืบหน้าการอัปโหลด',
+  queuing: 'อัปโหลดเสร็จแล้ว กำลังเพิ่มเข้าคิว...',
+  queuedPrefix: 'เข้าคิวแล้ว:',
+  viewJob: 'ดูสถานะงาน',
+  jobFailedPrefix: 'อัปโหลดวิดีโอแล้ว แต่เพิ่มเข้าคิวไม่สำเร็จ: ',
+  somethingWrong: 'เกิดข้อผิดพลาดบางอย่าง',
+  tryAgain: 'ลองอีกครั้ง',
+  alreadyUploaded: 'อัปโหลดไฟล์เรียบร้อยแล้ว การลองอีกครั้งจะไม่อัปโหลดซ้ำ',
+  btnUploading: 'กำลังอัปโหลด...',
+  btnQueuing: 'กำลังเข้าคิว...',
+  btnIdle: 'อัปโหลดและปรับปรุงคุณภาพ',
 } as const;
 
 type Phase = 'idle' | 'reading' | 'ready' | 'uploading' | 'queuing' | 'error';
@@ -48,7 +49,14 @@ type Phase = 'idle' | 'reading' | 'ready' | 'uploading' | 'queuing' | 'error';
 type Stage = 'upload' | 'job';
 type QueuedNotice = { jobId: string; filename: string; presetLabel: string };
 
-class UploadError extends Error {}
+class UploadError extends Error {
+  /** API `error.code`, when the failure came from an API response. */
+  readonly code?: string;
+  constructor(message: string, code?: string) {
+    super(message);
+    this.code = code;
+  }
+}
 
 async function apiJson<T>(url: string, init: RequestInit): Promise<T> {
   let res: Response;
@@ -59,7 +67,8 @@ async function apiJson<T>(url: string, init: RequestInit): Promise<T> {
   }
   const body = await res.json().catch(() => null);
   if (!res.ok) {
-    throw new UploadError(body?.error?.message ?? TEXT.requestFailed(res.status));
+    const code = typeof body?.error?.code === 'string' ? body.error.code : undefined;
+    throw new UploadError(apiErrorText(body, TEXT.requestFailed(res.status)), code);
   }
   return body as T;
 }
@@ -90,8 +99,8 @@ function putFile(
 
 function describeMeta(file: File, meta: VideoMeta): string {
   const parts = [`${(file.size / MIB).toFixed(1)} MiB`];
-  if (meta.width && meta.height) parts.push(`${meta.width}x${meta.height}`);
-  if (meta.durationSec) parts.push(`${meta.durationSec.toFixed(1)} s`);
+  if (meta.width && meta.height) parts.push(`${meta.width}×${meta.height}`);
+  if (meta.durationSec) parts.push(`${meta.durationSec.toFixed(1)} วินาที`);
   return parts.join(', ');
 }
 
@@ -223,7 +232,13 @@ export function UploadForm() {
       setQueued({ jobId: job.id, filename, presetLabel });
       window.dispatchEvent(new Event(ASSETS_CHANGED_EVENT));
     } catch (err) {
-      const message = err instanceof Error ? err.message : TEXT.somethingWrong;
+      let message = err instanceof Error ? err.message : TEXT.somethingWrong;
+      if (err instanceof UploadError && (err.code === 'PRESET_INCOMPATIBLE' || err.code === 'PRESET_TOO_SLOW')) {
+        // Precise Thai reason from the same pure check the preset list uses.
+        const row = rows.find((r) => r.preset.id === chosen);
+        const reason = row ? compatReasonTh(row.compat, row.preset.label) : null;
+        if (reason) message = reason;
+      }
       setErrorStage(stage);
       setError(stage === 'job' ? `${TEXT.jobFailedPrefix}${message}` : message);
       setPhase('error');

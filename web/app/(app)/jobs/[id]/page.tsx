@@ -20,11 +20,11 @@ export default function JobPage(props: PageProps<"/jobs/[id]">) {
         href="/jobs"
         className="w-fit rounded-md text-sm underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
       >
-        ← Back to jobs
+        ← กลับไปหน้างาน
       </Link>
-      <h1 className="text-2xl font-semibold tracking-tight">Job</h1>
+      <h1 className="text-2xl font-semibold tracking-tight">รายละเอียดงาน</h1>
       <Suspense
-        fallback={<p className="text-zinc-600 dark:text-zinc-400">Loading...</p>}
+        fallback={<p className="text-zinc-600 dark:text-zinc-400">กำลังโหลด...</p>}
       >
         <JobBody params={props.params} />
       </Suspense>
