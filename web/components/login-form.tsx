@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
+import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/browser";
 
 export function LoginForm() {
@@ -44,7 +45,7 @@ export function LoginForm() {
   }
 
   const field =
-    "w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100";
+    "min-h-11 w-full rounded-lg border border-zinc-400 bg-white px-3 py-2 text-base text-zinc-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100";
 
   return (
     <form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
@@ -86,13 +87,9 @@ export function LoginForm() {
           className={field}
         />
       </div>
-      <button
-        type="submit"
-        disabled={pending}
-        className="rounded-md bg-zinc-900 px-4 py-2 font-medium text-white disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900"
-      >
+      <Button type="submit" variant="primary" size="lg" fullWidth disabled={pending}>
         {pending ? "กำลังเข้าสู่ระบบ..." : "เข้าสู่ระบบ"}
-      </button>
+      </Button>
     </form>
   );
 }

@@ -12,8 +12,9 @@ Errors: `{"error":{"code","message","details?"}}`. `400 VALIDATION | INVALID_JSO
 ## Lifecycle
 
 ```
-claim -> [download -> probe -> enhance -> encode -> upload] -> complete | fail
-            heartbeat every ~15 s throughout; output-url requested right before upload
+claim -> [download -> probe -> enhance -> encode -> verify -> upload] -> complete | fail
+            heartbeat every ~15 s throughout, immediately on every stage change, progress at most every ~3 s
+            while enhancing and immediately at 100%; output-url requested right before upload
 ```
 
 The worker processes the queue until `claim` returns 204, then exits (no polling, no keepalive).
@@ -39,7 +40,8 @@ The claim picks the oldest QUEUED job of any user (FIFO by creation time; the to
 
 ## POST /worker/jobs/{jobId}/heartbeat
 
-`{ "attemptId", "stage": "download"|"probe"|"enhance"|"encode"|"upload", "processedFrames"?: int, "totalFrames"?: int, "probe"?: object }` -> `200 { "cancelRequested": boolean }`.
+`{ "attemptId", "stage": "download"|"probe"|"enhance"|"encode"|"verify"|"upload", "processedFrames"?: int, "totalFrames"?: int, "probe"?: object }` -> `200 { "cancelRequested": boolean }`.
+The server never lets `processedFrames` decrease within an attempt (a delayed or out-of-order heartbeat is accepted but cannot rewind progress). The worker sends `processedFrames == totalFrames` from the end of `enhance` through `encode`, `verify` and `upload`.
 `probe` = ffprobe summary of the input, send once after the probe stage. For variable-frame-rate input the worker normalizes to CFR (nearest standard rate to avg fps, max 30) and adds `normalized: { fromAvgFps: number, toFps: number }` to the probe object (the other fields describe the original upload; `outputMeta.fps`/`frames` follow the CFR rate). If `cancelRequested` is true: stop, then call `fail` with code `CANCELLED`.
 
 ## POST /worker/jobs/{jobId}/output-url
@@ -53,7 +55,7 @@ PUT the file to `putUrl` with exactly those headers (they are signed). Key is `o
 { "attemptId": "uuid",
   "outputMeta": { "width": int, "height": int, "frames": int, "fps": number, "durationSec": number, "hasAudio": boolean, "sizeBytes": int } }
 ```
-Server HEADs the output object; missing -> `409 OUTPUT_MISSING`; size differs from `outputMeta.sizeBytes` -> `409 OUTPUT_SIZE_MISMATCH`. If cancel was requested the output is not published: job becomes CANCELLED and the call returns `409 CANCELLED` (treat as done). Otherwise job becomes SUCCEEDED and `200 { "state": "SUCCEEDED" }`. A repeated `complete` for an already-SUCCEEDED attempt also returns `200`.
+Server HEADs the output object; missing -> `409 OUTPUT_MISSING`; size differs from `outputMeta.sizeBytes` -> `409 OUTPUT_SIZE_MISMATCH`. If cancel was requested the output is not published: job becomes CANCELLED and the call returns `409 CANCELLED` (treat as done). Otherwise job becomes SUCCEEDED and `200 { "state": "SUCCEEDED" }`. On success the server also sets `processed_frames = total_frames` (the last known total, else `outputMeta.frames`) and clears `stage`. A repeated `complete` for an already-SUCCEEDED attempt also returns `200`.
 
 ## POST /worker/jobs/{jobId}/fail
 

@@ -4,20 +4,17 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   formatDateTime,
-  formatFrames,
   isActiveState,
+  jobProgressDisplay,
   jobStateText,
-  progressPercent,
   stageText,
   stateBadgeClass,
 } from '@/components/job-format';
+import { Button } from '@/components/ui/button';
 import { usePolling } from '@/components/use-polling';
 import { apiErrorText, jobFailureText } from '@/lib/error-messages';
 import type { JobDto } from '@/lib/contracts/jobs';
 import type { JobMediaResponse } from '@/lib/media-info';
-
-const BUTTON =
-  'rounded-md border border-zinc-300 px-3 py-1.5 text-sm hover:bg-zinc-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800';
 
 type Props = {
   jobId: string;
@@ -157,8 +154,7 @@ export function JobStatus({ jobId, assetName, onJobChange }: Props) {
   }
 
   const active = isActiveState(job.state);
-  const percent = progressPercent(job.processedFrames, job.totalFrames);
-  const frames = formatFrames(job.processedFrames, job.totalFrames);
+  const progress = jobProgressDisplay(job);
   const stage = stageText(job.stage);
   const showStale = job.state === 'RUNNING' && job.stale;
 
@@ -170,7 +166,7 @@ export function JobStatus({ jobId, assetName, onJobChange }: Props) {
         >
           {jobStateText(job)}
         </span>
-        <span className="text-sm text-zinc-600 dark:text-zinc-400">
+        <span className="min-w-0 break-all text-sm text-zinc-600 dark:text-zinc-400">
           {assetName ? `${assetName} · ` : ''}
           {job.presetId}
         </span>
@@ -191,35 +187,35 @@ export function JobStatus({ jobId, assetName, onJobChange }: Props) {
       {showStale ? (
         <div
           role="alert"
-          className="flex flex-wrap items-center gap-3 rounded-md border border-amber-600 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-500 dark:bg-amber-950 dark:text-amber-100"
+          className="flex flex-col gap-3 rounded-lg border border-amber-600 bg-amber-50 p-3 text-sm sm:flex-row sm:flex-wrap sm:items-center text-amber-950 dark:border-amber-500 dark:bg-amber-950 dark:text-amber-100"
         >
           <span>
             Colab อาจขาดการเชื่อมต่อ? ไม่ได้รับสัญญาณจาก worker เกิน 3 นาที (heartbeat ล่าสุด:{' '}
             {formatDateTime(job.heartbeatAt)})
           </span>
-          <button
-            type="button"
+          <Button
+            variant="secondary"
             onClick={() => void act('requeue')}
             disabled={actionBusy !== null}
-            className={BUTTON}
+            className="w-full sm:w-auto"
           >
             {actionBusy === 'requeue' ? 'กำลังส่งกลับเข้าคิว...' : 'ส่งกลับเข้าคิว'}
-          </button>
+          </Button>
         </div>
       ) : null}
 
-      {job.state === 'RUNNING' || job.state === 'SUCCEEDED' || frames ? (
+      {job.state === 'RUNNING' || progress.bar || progress.text ? (
         <div className="flex flex-col gap-1">
           {stage && job.state === 'RUNNING' ? <p className="text-sm">ขั้นตอน: {stage}</p> : null}
-          {percent !== null ? (
+          {progress.bar ? (
             <progress
               className="h-3 w-full"
-              max={job.totalFrames ?? 0}
-              value={job.processedFrames ?? 0}
-              aria-label="เฟรมที่ประมวลผลแล้ว"
+              max={progress.bar.max}
+              value={progress.bar.value}
+              aria-label="ความคืบหน้าการประมวลผล"
             />
           ) : null}
-          {frames ? <p className="text-sm tabular-nums">{frames}</p> : null}
+          {progress.text ? <p className="text-sm tabular-nums">{progress.text}</p> : null}
         </div>
       ) : null}
 
@@ -239,7 +235,7 @@ export function JobStatus({ jobId, assetName, onJobChange }: Props) {
         </div>
       ) : null}
 
-      <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-sm">
+      <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-sm [&>dd]:min-w-0 [&>dd]:break-words">
         <dt className="text-zinc-600 dark:text-zinc-400">จำนวนครั้งที่ลอง</dt>
         <dd>{job.attemptCount}</dd>
         <dt className="text-zinc-600 dark:text-zinc-400">สร้างเมื่อ</dt>
@@ -263,36 +259,36 @@ export function JobStatus({ jobId, assetName, onJobChange }: Props) {
         </p>
       ) : null}
 
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
         {active ? (
-          <button
-            type="button"
+          <Button
+            variant="danger"
             onClick={() => void act('cancel')}
             disabled={job.cancelRequested || actionBusy !== null}
-            className={BUTTON}
+            className="w-full sm:w-auto"
           >
             {job.cancelRequested || actionBusy === 'cancel' ? 'กำลังยกเลิก…' : 'ยกเลิก'}
-          </button>
+          </Button>
         ) : null}
         {job.state === 'FAILED' ? (
-          <button
-            type="button"
+          <Button
+            variant="secondary"
             onClick={() => void act('requeue')}
             disabled={actionBusy !== null}
-            className={BUTTON}
+            className="w-full sm:w-auto"
           >
             {actionBusy === 'requeue' ? 'กำลังส่งกลับเข้าคิว...' : 'ส่งกลับเข้าคิว'}
-          </button>
+          </Button>
         ) : null}
         {job.state === 'SUCCEEDED' ? (
-          <button
-            type="button"
+          <Button
+            variant="primary"
             onClick={() => void download()}
             disabled={actionBusy !== null}
-            className={BUTTON}
+            className="w-full sm:w-auto"
           >
             {actionBusy === 'download' ? 'กำลังเตรียมดาวน์โหลด...' : 'ดาวน์โหลดวิดีโอที่ปรับปรุงแล้ว'}
-          </button>
+          </Button>
         ) : null}
       </div>
     </section>

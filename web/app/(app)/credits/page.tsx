@@ -16,7 +16,7 @@ const link =
 /** Static page: attribution for every model used by the presets (CC BY 4.0 / BSD-3-Clause). */
 export default function CreditsPage() {
   return (
-    <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-6 py-10">
+    <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-4 py-8 sm:px-6 sm:py-10">
       <h1 className="text-2xl font-semibold tracking-tight">เครดิตโมเดล</h1>
       <section className="flex flex-col gap-2">
         <p>{CREDITS_NOTICE_TH}</p>

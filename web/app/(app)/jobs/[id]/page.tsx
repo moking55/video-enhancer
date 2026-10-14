@@ -18,7 +18,7 @@ export default function JobPage(props: PageProps<"/jobs/[id]">) {
     <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 px-4 py-8 sm:px-6 sm:py-10">
       <Link
         href="/jobs"
-        className="w-fit rounded-md text-sm underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+        className="inline-flex min-h-11 w-fit items-center rounded-md text-sm underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
       >
         ← กลับไปหน้างาน
       </Link>

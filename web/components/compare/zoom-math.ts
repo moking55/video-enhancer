@@ -63,6 +63,22 @@ export function wheelZoomFactor(deltaY: number, deltaMode: number): number {
   return Math.exp(-clamped * 0.0015);
 }
 
+/** Distance between two points (pinch span in px). */
+export function distance(a: Point, b: Point): number {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+/** Midpoint of two points (pinch center in px). */
+export function midpoint(a: Point, b: Point): Point {
+  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+}
+
+/** Scale multiplier of a pinch from span `from` to span `to` (1 when the start span is unusable). */
+export function pinchFactor(from: number, to: number): number {
+  if (!(from > 0) || !Number.isFinite(to) || to < 0) return 1;
+  return to / from;
+}
+
 export const CENTER: Point = { x: 0.5, y: 0.5 };
 
 /**

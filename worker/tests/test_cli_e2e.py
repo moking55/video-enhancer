@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import re
+import threading
+import time
 
 import pytest
 
@@ -46,8 +48,19 @@ def test_e2e_success(api, clips, tmp_path, capsys, monkeypatch):
 
     beats = api.endpoints("heartbeat")
     stages = [b["stage"] for b in beats]
-    for s in ("download", "probe", "enhance", "encode", "upload"):
+    for s in ("download", "probe", "enhance", "encode", "verify", "upload"):
         assert s in stages
+    # the counter never lags once the frames are done: encode/verify/upload carry processed == total
+    for b in beats:
+        if b["stage"] in ("encode", "verify", "upload"):
+            assert b["processedFrames"] == b["totalFrames"] == 60
+    # progress never goes backwards in the order the server received it
+    seen = [b["processedFrames"] for b in beats if "processedFrames" in b]
+    assert seen == sorted(seen)
+    # the last heartbeat before complete is the 100% one
+    order = [e for (e, _, _) in api.calls if e in ("heartbeat", "complete")]
+    assert order[-1] == "complete"
+    assert api.endpoints("heartbeat")[-1]["processedFrames"] == 60
     probes = [b["probe"] for b in beats if "probe" in b]
     assert len(probes) == 1 and probes[0]["frames"] == 60
     assert not (tmp_path / "work" / job_id).exists()  # cleaned up
@@ -163,3 +176,96 @@ def test_heartbeat_flags():
     finally:
         hb.stop()
     assert f.n >= 2
+
+
+class _Rec:
+    def __init__(self):
+        self.calls = []
+        self.lock = threading.Lock()
+
+    def heartbeat(self, job_id, attempt_id, stage, processed=None, total=None, probe=None):
+        with self.lock:
+            self.calls.append((stage, processed, total))
+        return False
+
+
+def test_heartbeat_sends_immediately_on_stage_change():
+    rec = _Rec()
+    hb = Heartbeat(rec, "j", "a", interval=3600)  # the timer never fires in this test
+    with hb:
+        for st in ("download", "probe", "enhance", "encode", "verify", "upload"):
+            hb.set_stage(st)
+    assert [c[0] for c in rec.calls[:6]] == ["download", "probe", "enhance", "encode", "verify", "upload"]
+
+
+def test_heartbeat_progress_is_throttled_and_flushed_at_100_percent():
+    rec = _Rec()
+    now = [0.0]
+    hb = Heartbeat(rec, "j", "a", interval=3600, progress_interval=3.0, clock=lambda: now[0])
+    with hb:
+        hb.set_stage("enhance")
+        hb.set_progress(1, 200)  # too soon: not woken
+        time.sleep(0.2)
+        assert len(rec.calls) == 1
+        now[0] = 3.5
+        hb.set_progress(50, 200)  # due -> thread sends without waiting for the 1 h timer
+        deadline = time.time() + 5
+        while len(rec.calls) < 2 and time.time() < deadline:
+            time.sleep(0.01)
+        assert rec.calls[-1] == ("enhance", 50, 200)
+        hb.set_progress(200, 200)  # 100% is always sent right away
+        while len(rec.calls) < 3 and time.time() < deadline:
+            time.sleep(0.01)
+        assert rec.calls[-1] == ("enhance", 200, 200)
+
+
+def test_heartbeat_progress_never_decreases_and_survives_stage_change():
+    rec = _Rec()
+    hb = Heartbeat(rec, "j", "a", interval=3600)
+    hb.set_stage("enhance")
+    hb.set_progress(120, 200)
+    hb.set_progress(100, 200)  # late/out-of-order callback
+    hb.beat()
+    assert rec.calls[-1] == ("enhance", 120, 200)
+    hb.set_stage("encode")  # keeps the counter instead of dropping it
+    assert rec.calls[-1] == ("encode", 120, 200)
+    hb.set_progress(200, 200)
+    hb.set_stage("upload")
+    assert rec.calls[-1] == ("upload", 200, 200)
+
+
+def test_heartbeat_stop_flush_joins_thread_then_sends_last_state():
+    rec = _Rec()
+    hb = Heartbeat(rec, "j", "a", interval=3600).start()
+    hb.set_stage("enhance")
+    hb.set_progress(10, 10)
+    hb.stop(flush=True)
+    assert hb._thread is not None and not hb._thread.is_alive()
+    assert rec.calls[-1] == ("enhance", 10, 10)
+
+
+def test_heartbeat_sends_are_serialised_and_never_stale():
+    sent: list[int | None] = []
+    active = [0]
+    overlap = [False]
+
+    class Slow:
+        def heartbeat(self, job_id, attempt_id, stage, processed=None, total=None, probe=None):
+            active[0] += 1
+            if active[0] > 1:
+                overlap[0] = True
+            time.sleep(0.02)
+            sent.append(processed)
+            active[0] -= 1
+            return False
+
+    hb = Heartbeat(Slow(), "j", "a", interval=0.01)
+    hb.start()
+    hb.set_stage("enhance")
+    for i in range(1, 30):
+        hb.set_progress(i, 30)
+        hb.beat()
+    hb.stop(flush=True)
+    assert not overlap[0]
+    nums = [x for x in sent if x is not None]
+    assert nums == sorted(nums) and nums[-1] == 29

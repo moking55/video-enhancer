@@ -83,16 +83,18 @@ def _pipeline(
     t0 = time.monotonic()
     runner.process(in_path, out_path, preset, info, hb.set_progress, hb.check)
     hb.check()
+    hb.set_progress(info.frames, info.frames)  # every frame is done: never leave the web at e.g. 120/200
     secs = time.monotonic() - t0
     # Measured speed, to calibrate the estimates later (SPEC "Runner performance").
     log(f"job {job_id}: {info.frames} frames in {secs:.1f}s "
         f"({secs / max(info.frames, 1):.3f} s/frame, device={getattr(runner, 'device', 'cpu')})")
 
-    stage("encode")  # final verification of the encoded file
+    stage("encode")  # reported at 100% (frames done; the encode/mux has finished inside the runner)
+    stage("verify")  # final verification of the encoded file
     out_info = media.verify_output(info, out_path, preset.scale)
     meta = media.output_meta(out_info)
 
-    stage("upload")
+    stage("upload")  # still carries processed == total
     target = api.output_url(job_id, attempt_id)
     transfer.upload(target["putUrl"], target.get("headers", {}), out_path)
     hb.check()
@@ -110,8 +112,10 @@ def run_job(api: ApiClient, runner: Runner, claim: dict[str, Any], work_dir: Pat
     try:
         try:
             meta = _pipeline(api, runner, claim, preset, job_dir, hb)
-        finally:
+        except BaseException:
             hb.stop()
+            raise
+        hb.stop(flush=True)  # join the thread, then one last beat (100%, "upload") before complete
         state = api.complete(job_id, attempt_id, meta)
         if state == "CANCELLED":
             log(f"job {job_id}: cancelled by user, output discarded")

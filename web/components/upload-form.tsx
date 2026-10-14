@@ -1,9 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState, type DragEvent } from 'react';
 
 import { PresetOptions, usePresets } from '@/components/preset-options';
+import { Button, buttonClass } from '@/components/ui/button';
 import {
   ASSETS_CHANGED_EVENT,
   checkClientLimits,
@@ -30,7 +31,6 @@ const TEXT = {
   cannotUpload: 'ไม่สามารถอัปโหลดไฟล์นี้ได้:',
   loadingPresets: 'กำลังโหลดรายการ preset...',
   presetLegend: '2. เลือก preset สำหรับปรับปรุงคุณภาพ',
-  noPresetFits: 'ไม่มี preset ที่รองรับวิดีโอนี้ ลองใช้ไฟล์ที่สั้นลงหรือมีความละเอียดต่ำลง',
   progressLabel: 'ความคืบหน้าการอัปโหลด',
   queuing: 'อัปโหลดเสร็จแล้ว กำลังเพิ่มเข้าคิว...',
   queuedPrefix: 'เข้าคิวแล้ว:',
@@ -41,7 +41,15 @@ const TEXT = {
   alreadyUploaded: 'อัปโหลดไฟล์เรียบร้อยแล้ว การลองอีกครั้งจะไม่อัปโหลดซ้ำ',
   btnUploading: 'กำลังอัปโหลด...',
   btnQueuing: 'กำลังเข้าคิว...',
-  btnIdle: 'อัปโหลดและปรับปรุงคุณภาพ',
+  btnIdle: 'อัปโหลดและเริ่มประมวลผล',
+  pickFile: 'เลือกไฟล์วิดีโอ',
+  changeFile: 'เปลี่ยนไฟล์',
+  dropHint: 'หรือลากไฟล์ MP4 มาวางที่นี่',
+  dropActive: 'ปล่อยเมาส์เพื่อเลือกไฟล์นี้',
+  hintNoFile: 'เลือกไฟล์และ preset ก่อน',
+  hintBlocked: 'ไฟล์นี้อัปโหลดไม่ได้ ดูเหตุผลด้านบน',
+  hintNoPreset: 'ไม่มี preset ที่ใช้กับไฟล์นี้ได้ ลองเลือกไฟล์อื่น',
+  hintFailed: 'กดปุ่ม “ลองอีกครั้ง” ด้านบน หรือเลือกไฟล์ใหม่',
 } as const;
 
 type Phase = 'idle' | 'reading' | 'ready' | 'uploading' | 'queuing' | 'error';
@@ -114,6 +122,9 @@ function describeMeta(file: File, meta: VideoMeta): string {
 export function UploadForm() {
   const inputId = useId();
   const hintId = useId();
+  const labelId = useId();
+  const submitHintId = useId();
+  const [dragOver, setDragOver] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [meta, setMeta] = useState<VideoMeta>({});
   const [phase, setPhase] = useState<Phase>('idle');
@@ -146,9 +157,29 @@ export function UploadForm() {
     sizeBytes: file?.size,
   });
   const chosen = resolveChosenPresetId(rows, selected);
+  const working = phase === 'uploading' || phase === 'queuing';
+  const blocked = problems.length > 0;
+  const failed = phase === 'error';
+  const canSubmit = !!file && !blocked && !!chosen && phase === 'ready';
+  /** Why the main button is disabled (shown next to it); null when enabled or busy. */
+  const submitHint =
+    canSubmit || working
+      ? null
+      : !file
+        ? TEXT.hintNoFile
+        : phase === 'reading'
+          ? TEXT.reading
+          : blocked
+            ? TEXT.hintBlocked
+            : !presets
+              ? TEXT.loadingPresets
+              : !chosen
+                ? TEXT.hintNoPreset
+                : failed
+                  ? TEXT.hintFailed
+                  : null;
 
-  async function onPick(e: React.ChangeEvent<HTMLInputElement>) {
-    const picked = e.target.files?.[0] ?? null;
+  async function handleFile(picked: File | null) {
     const token = ++selection.current;
     uploadedAssetId.current = null;
     readyAssetId.current = null;
@@ -168,6 +199,27 @@ export function UploadForm() {
     setMeta(read);
     setProblems(checkClientLimits(picked, read));
     setPhase('ready');
+  }
+
+  function onDragOver(e: DragEvent<HTMLElement>) {
+    if (working) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    setDragOver(true);
+  }
+
+  function onDragLeave(e: DragEvent<HTMLElement>) {
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragOver(false);
+  }
+
+  function onDrop(e: DragEvent<HTMLElement>) {
+    e.preventDefault();
+    setDragOver(false);
+    const dropped = e.dataTransfer.files?.[0];
+    if (working || !dropped) return;
+    // Keep the real <input> in sync so "choose again" and the reset behave.
+    if (inputRef.current) inputRef.current.files = e.dataTransfer.files;
+    void handleFile(dropped);
   }
 
   /** Back to the initial state once a job was created. */
@@ -249,33 +301,58 @@ export function UploadForm() {
     }
   }
 
-  const working = phase === 'uploading' || phase === 'queuing';
-  const blocked = problems.length > 0;
-  const failed = phase === 'error';
-  const canSubmit = !!file && !blocked && !!chosen && phase === 'ready';
 
   return (
     <form
-      className="flex flex-col gap-4 rounded-md border border-zinc-300 p-4 dark:border-zinc-700"
+      className="flex flex-col gap-4 rounded-lg border border-zinc-300 p-4 sm:p-6 dark:border-zinc-700"
       onSubmit={(e) => {
         e.preventDefault();
         void submit();
       }}
     >
-      <div className="flex flex-col gap-1">
-        <label htmlFor={inputId} className="text-sm font-medium">
+      <div className="flex flex-col gap-2">
+        <span id={labelId} className="text-sm font-medium">
           {TEXT.fileLabel}
-        </label>
+        </span>
         <input
           ref={inputRef}
           id={inputId}
           type="file"
           accept="video/mp4,.mp4"
-          onChange={onPick}
+          onChange={(e) => void handleFile(e.target.files?.[0] ?? null)}
           disabled={working}
+          aria-labelledby={labelId}
           aria-describedby={hintId}
-          className="text-sm"
+          className="peer sr-only"
         />
+        {/* The label is the dropzone: clicking it opens the picker, dropping a file selects it. */}
+        <label
+          htmlFor={inputId}
+          onDragEnter={onDragOver}
+          onDragOver={onDragOver}
+          onDragLeave={onDragLeave}
+          onDrop={onDrop}
+          className={`flex flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed px-4 py-6 text-center peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-blue-600 ${
+            working
+              ? 'cursor-not-allowed border-zinc-300 opacity-60 dark:border-zinc-700'
+              : dragOver
+                ? 'cursor-copy border-blue-600 bg-blue-50 dark:border-blue-400 dark:bg-blue-950/40'
+                : 'cursor-pointer border-zinc-400 hover:border-blue-600 hover:bg-zinc-50 dark:border-zinc-600 dark:hover:border-blue-400 dark:hover:bg-zinc-900'
+          }`}
+        >
+          <span
+            className={buttonClass({
+              variant: 'secondary',
+              size: 'md',
+              className: 'pointer-events-none w-full sm:w-auto',
+            })}
+          >
+            {file ? TEXT.changeFile : TEXT.pickFile}
+          </span>
+          <span className="hidden text-sm text-zinc-600 sm:block dark:text-zinc-400">
+            {dragOver ? TEXT.dropActive : TEXT.dropHint}
+          </span>
+        </label>
         <p id={hintId} className="text-sm text-zinc-600 dark:text-zinc-400">
           {TEXT.fileHint}
         </p>
@@ -284,7 +361,7 @@ export function UploadForm() {
       {phase === 'reading' ? <p role="status">{TEXT.reading}</p> : null}
 
       {file && phase !== 'reading' ? (
-        <p className="text-sm">
+        <p className="break-all rounded-lg bg-zinc-100 p-3 text-sm dark:bg-zinc-900">
           <strong>{file.name}</strong>: {describeMeta(file, meta)}
           {meta.width ? '' : TEXT.resolutionUnknown}
         </p>
@@ -314,14 +391,9 @@ export function UploadForm() {
           onChange={setSelected}
           disabled={working}
           legend={TEXT.presetLegend}
+          hideIncompatible={!!file && phase !== 'reading'}
         />
       )}
-
-      {file && presets && !blocked && !chosen && phase !== 'reading' ? (
-        <p role="alert" className="text-sm text-red-700 dark:text-red-400">
-          {TEXT.noPresetFits}
-        </p>
-      ) : null}
 
       {working || (failed && percent > 0) ? (
         <div className="flex items-center gap-2">
@@ -340,14 +412,14 @@ export function UploadForm() {
       {queued ? (
         <p
           role="status"
-          className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-green-700 p-3 text-sm text-green-900 dark:border-green-500 dark:text-green-200"
+          className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-green-700 p-3 text-sm text-green-900 dark:border-green-500 dark:text-green-200"
         >
           <span>
             {TEXT.queuedPrefix} {queued.filename} — {queued.presetLabel}
           </span>
           <Link
             href={`/jobs/${queued.jobId}`}
-            className="font-medium underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+            className={buttonClass({ variant: 'secondary', size: 'sm' })}
           >
             {TEXT.viewJob}
           </Link>
@@ -362,32 +434,36 @@ export function UploadForm() {
           className="flex flex-wrap items-center gap-3 text-sm text-red-700 dark:text-red-400"
         >
           <span>{error}</span>
-          <button
-            type="button"
-            onClick={() => void submit()}
-            disabled={!chosen}
-            className="rounded-md border border-zinc-300 px-3 py-1 text-zinc-900 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-100"
-          >
+          <Button variant="secondary" size="sm" onClick={() => void submit()} disabled={!chosen}>
             {TEXT.tryAgain}
-          </button>
+          </Button>
           {errorStage === 'job' ? (
             <span className="text-zinc-600 dark:text-zinc-400">{TEXT.alreadyUploaded}</span>
           ) : null}
         </div>
       ) : null}
 
-      <div>
-        <button
+      <div className="flex flex-col gap-2">
+        <Button
           type="submit"
+          variant="primary"
+          size="lg"
+          fullWidth
           disabled={!canSubmit}
-          className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+          aria-describedby={submitHint ? submitHintId : undefined}
+          className="sm:w-auto sm:min-w-72 sm:self-start"
         >
           {phase === 'uploading'
             ? TEXT.btnUploading
             : phase === 'queuing'
               ? TEXT.btnQueuing
               : TEXT.btnIdle}
-        </button>
+        </Button>
+        {submitHint ? (
+          <p id={submitHintId} className="text-sm text-zinc-600 dark:text-zinc-400">
+            {submitHint}
+          </p>
+        ) : null}
       </div>
     </form>
   );

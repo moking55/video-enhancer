@@ -8,6 +8,8 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 
+import { Button } from "@/components/ui/button";
+
 import { sanitizeFps } from "./sync-math";
 import { useSyncedVideos } from "./use-synced-videos";
 import {
@@ -39,10 +41,6 @@ const PLAYING_SEEK_S = 5;
 /** Keyboard pan distance as a fraction of the viewport. */
 const KEY_PAN = 0.1;
 
-const BUTTON =
-  "rounded-md border border-zinc-300 px-3 py-1.5 text-sm hover:bg-zinc-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800 dark:focus-visible:outline-blue-400";
-const BUTTON_ON =
-  "border-blue-600 bg-blue-600 text-white hover:bg-blue-700 dark:border-blue-500 dark:bg-blue-600 dark:hover:bg-blue-500";
 const LABEL =
   "pointer-events-none absolute top-2 rounded bg-black/70 px-2 py-0.5 text-xs font-medium text-white";
 
@@ -263,7 +261,7 @@ export function CompareViewer({
             onPointerDown={onDividerDown}
             onPointerMove={onDividerMove}
             onKeyDown={onDividerKey}
-            className="group absolute top-0 bottom-0 z-10 w-8 -translate-x-1/2 cursor-ew-resize touch-none outline-none"
+            className="group absolute top-0 bottom-0 z-10 w-11 -translate-x-1/2 cursor-ew-resize touch-none outline-none"
             style={{ left: `${clampWipe(wipe) * 100}%` }}
           >
             <span className="absolute top-0 bottom-0 left-1/2 w-0.5 -translate-x-1/2 bg-white shadow-[0_0_0_1px_rgba(0,0,0,0.5)]" />
@@ -283,29 +281,35 @@ export function CompareViewer({
         </p>
       ) : null}
 
-      <div className="flex flex-wrap items-center gap-2">
-        <button type="button" onClick={sync.togglePlay} className={BUTTON} aria-keyshortcuts="Space">
+      {/* Row 1: transport. Row 2: time. Then the seek bar and the view controls (wrap on phones). */}
+      <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap sm:items-center">
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={sync.togglePlay}
+          aria-keyshortcuts="Space"
+        >
           {sync.playing ? "หยุดชั่วคราว" : "เล่น"}
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button
+          variant="secondary"
+          size="sm"
           onClick={() => sync.stepFrame(-1)}
-          className={BUTTON}
           aria-keyshortcuts=","
           title="เฟรมก่อนหน้า (, หรือ ←)"
         >
           เฟรมก่อนหน้า
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button
+          variant="secondary"
+          size="sm"
           onClick={() => sync.stepFrame(1)}
-          className={BUTTON}
           aria-keyshortcuts="."
           title="เฟรมถัดไป (. หรือ →)"
         >
           เฟรมถัดไป
-        </button>
-        <span className="ml-auto text-sm tabular-nums text-zinc-700 dark:text-zinc-300">
+        </Button>
+        <span className="col-span-3 text-sm tabular-nums text-zinc-700 sm:col-span-1 sm:ml-auto dark:text-zinc-300">
           {formatTime(sync.currentTime)} / {formatTime(sync.duration)} · เฟรมที่ {shownFrame}
           {frames > 0 ? ` / ${frames}` : ""}
         </span>
@@ -321,87 +325,91 @@ export function CompareViewer({
         value={Math.min(sync.currentTime, sync.duration > 0 ? sync.duration : 0)}
         disabled={sync.duration <= 0}
         onChange={(e) => sync.seek(Number(e.target.value))}
-        className="w-full accent-blue-600"
+        className="h-11 w-full accent-blue-600"
       />
 
       <div className="flex flex-wrap items-center gap-2">
-        <div role="group" aria-label="โหมดการแสดงผล" className="flex gap-1">
-          <button
-            type="button"
+        <div role="group" aria-label="โหมดการแสดงผล" className="grid w-full grid-cols-2 gap-1 sm:flex sm:w-auto">
+          <Button
+            variant={wipeMode ? "primary" : "secondary"}
+            size="sm"
             aria-pressed={wipeMode}
             onClick={() => setMode("wipe")}
-            className={`${BUTTON} ${wipeMode ? BUTTON_ON : ""}`}
           >
             เส้นแบ่ง
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant={!wipeMode ? "primary" : "secondary"}
+            size="sm"
             aria-pressed={!wipeMode}
             onClick={() => setMode("side")}
-            className={`${BUTTON} ${!wipeMode ? BUTTON_ON : ""}`}
           >
             เทียบข้างกัน
-          </button>
+          </Button>
         </div>
 
-        <div role="group" aria-label="ซูม" className="flex items-center gap-1">
-          <button
-            type="button"
+        <div role="group" aria-label="ซูม" className="flex w-full items-center justify-between gap-1 sm:w-auto sm:justify-start">
+          <Button
+            variant="secondary"
+            size="sm"
             onClick={zoom.zoomOut}
             disabled={!zoomed}
-            className={BUTTON}
+            className="min-w-11"
             aria-label="ซูมออก"
             title="ซูมออก (-)"
           >
             −
-          </button>
+          </Button>
           <span className="min-w-12 text-center text-sm tabular-nums" aria-live="polite">
             {zoomLabel}
           </span>
-          <button
-            type="button"
+          <Button
+            variant="secondary"
+            size="sm"
             onClick={zoom.zoomIn}
             disabled={zoom.view.scale >= 8}
-            className={BUTTON}
+            className="min-w-11"
             aria-label="ซูมเข้า"
             title="ซูมเข้า (+)"
           >
             +
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
             onClick={zoom.reset}
             disabled={!zoomed}
-            className={BUTTON}
+            className="flex-1 sm:flex-none"
             title="รีเซ็ตซูม (0)"
           >
             รีเซ็ตซูม
-          </button>
+          </Button>
         </div>
 
-        <button
-          type="button"
-          aria-pressed={pixelated}
-          onClick={() => setPixelated((p) => !p)}
-          className={`${BUTTON} ${pixelated ? BUTTON_ON : ""}`}
-          title="โหมดพิกเซลแสดงพิกเซลจริงเมื่อซูม โหมดเรียบเนียนจะทำให้ภาพนุ่มนวลขึ้น"
-        >
-          {pixelated ? "ภาพแบบพิกเซล" : "ภาพแบบเรียบเนียน"}
-        </button>
-
-        <button
-          type="button"
-          aria-pressed={soundOn}
-          onClick={() => setSoundOn((s) => !s)}
-          className={`${BUTTON} ${soundOn ? BUTTON_ON : ""}`}
-          title="เสียงมาจากวิดีโอที่ปรับปรุงแล้ว ส่วนวิดีโอต้นฉบับจะปิดเสียงเสมอ"
-        >
-          {soundOn ? "เสียง: เปิด" : "เสียง: ปิด"}
-        </button>
+        <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
+          <Button
+            variant={pixelated ? "primary" : "secondary"}
+            size="sm"
+            aria-pressed={pixelated}
+            onClick={() => setPixelated((p) => !p)}
+            title="โหมดพิกเซลแสดงพิกเซลจริงเมื่อซูม โหมดเรียบเนียนจะทำให้ภาพนุ่มนวลขึ้น"
+          >
+            {pixelated ? "ภาพแบบพิกเซล" : "ภาพแบบเรียบเนียน"}
+          </Button>
+          <Button
+            variant={soundOn ? "primary" : "secondary"}
+            size="sm"
+            aria-pressed={soundOn}
+            onClick={() => setSoundOn((s) => !s)}
+            title="เสียงมาจากวิดีโอที่ปรับปรุงแล้ว ส่วนวิดีโอต้นฉบับจะปิดเสียงเสมอ"
+          >
+            {soundOn ? "เสียง: เปิด" : "เสียง: ปิด"}
+          </Button>
+        </div>
       </div>
 
       <details className="text-sm text-zinc-600 dark:text-zinc-400">
-        <summary className="cursor-pointer">แป้นพิมพ์ลัด</summary>
+        <summary className="flex min-h-11 cursor-pointer items-center">แป้นพิมพ์ลัดและท่าทางสัมผัส</summary>
         <ul className="mt-2 list-disc space-y-1 pl-5">
           <li>คลิกที่ตัวเล่นวิดีโอหรือกด Tab เพื่อเปิดใช้งานแป้นพิมพ์ลัด</li>
           <li>Space: เล่นหรือหยุดชั่วคราว</li>
@@ -411,6 +419,7 @@ export function CompareViewer({
           <li>โฟกัสที่เส้นแบ่งได้ แล้วใช้ ←, →, Home และ End เพื่อขยับ</li>
           <li>+ และ −: ซูม 1× ถึง 8×, 0: รีเซ็ตซูม</li>
           <li>Shift + ปุ่มลูกศร: เลื่อนภาพขณะซูมเข้า</li>
+          <li>หน้าจอสัมผัส: ลากเส้นแบ่งเพื่อเปรียบเทียบ ใช้สองนิ้วถ่างหรือหุบเพื่อซูม และลากนิ้วเดียวเพื่อเลื่อนภาพเมื่อซูมเข้า</li>
           <li>เมาส์: หมุนล้อเมาส์เพื่อซูมตรงตำแหน่งเคอร์เซอร์ ลากเพื่อเลื่อนภาพ และลากเส้นแบ่งเพื่อเปรียบเทียบ</li>
         </ul>
       </details>

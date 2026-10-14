@@ -15,8 +15,11 @@ import {
   CENTER,
   IDENTITY_VIEW,
   ZOOM_STEP,
+  distance,
   dragDelta,
+  midpoint,
   panBy,
+  pinchFactor,
   pointerToViewport,
   wheelZoomFactor,
   zoomAt,
@@ -45,7 +48,8 @@ export type ZoomPanApi = {
  * Zoom/pan state shared by every pane. `containerRef` is the element that
  * contains all panes; with `panes = 2` it is split into two equal halves that
  * show the same view. Wheel zoom is attached natively (non-passive) so the page
- * does not scroll while zooming.
+ * does not scroll while zooming. One pointer drags (pans); two pointers pinch
+ * (zoom around their midpoint while following it, so touch pan + pinch work).
  */
 export function useZoomPan(
   containerRef: RefObject<HTMLElement | null>,
@@ -54,7 +58,10 @@ export function useZoomPan(
   const [view, setView] = useState<ZoomView>(IDENTITY_VIEW);
   const [dragging, setDragging] = useState(false);
   const panesRef = useRef(panes);
-  const drag = useRef<{ id: number; x: number; y: number } | null>(null);
+  /** Active pointers (mouse, touch, pen) by id, in client px. */
+  const pointers = useRef(new Map<number, Point>());
+  /** Last two-pointer span and midpoint while pinching. */
+  const pinch = useRef<{ span: number; mid: Point } | null>(null);
 
   useEffect(() => {
     panesRef.current = panes;
@@ -89,38 +96,70 @@ export function useZoomPan(
     [],
   );
 
-  const onPointerDown = useCallback((e: ReactPointerEvent<HTMLElement>) => {
-    if (e.button !== 0) return;
-    drag.current = { id: e.pointerId, x: e.clientX, y: e.clientY };
-    e.currentTarget.setPointerCapture(e.pointerId);
-    setDragging(true);
+  const startPinchIfTwo = useCallback(() => {
+    const [a, b] = [...pointers.current.values()];
+    pinch.current = pointers.current.size === 2 ? { span: distance(a, b), mid: midpoint(a, b) } : null;
   }, []);
+
+  const onPointerDown = useCallback(
+    (e: ReactPointerEvent<HTMLElement>) => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      e.currentTarget.setPointerCapture(e.pointerId);
+      startPinchIfTwo();
+      setDragging(true);
+    },
+    [startPinchIfTwo],
+  );
 
   const onPointerMove = useCallback(
     (e: ReactPointerEvent<HTMLElement>) => {
-      const d = drag.current;
-      if (!d || d.id !== e.pointerId) return;
+      const prev = pointers.current.get(e.pointerId);
+      if (!prev) return;
       const el = containerRef.current;
       if (!el) return;
       const rect = el.getBoundingClientRect();
+      const next = { x: e.clientX, y: e.clientY };
+      pointers.current.set(e.pointerId, next);
+
+      const pinching = pinch.current;
+      if (pinching && pointers.current.size === 2) {
+        const [a, b] = [...pointers.current.values()];
+        const span = distance(a, b);
+        const mid = midpoint(a, b);
+        const factor = pinchFactor(pinching.span, span);
+        const { dx, dy } = dragDelta(
+          mid.x - pinching.mid.x,
+          mid.y - pinching.mid.y,
+          rect.width / panesRef.current,
+          rect.height,
+        );
+        const anchor = pointerToViewport(mid.x, mid.y, rect, panesRef.current);
+        setView((v) => panBy(zoomAt(v, v.scale * factor, anchor), dx, dy));
+        pinch.current = { span, mid };
+        return;
+      }
+
       const { dx, dy } = dragDelta(
-        e.clientX - d.x,
-        e.clientY - d.y,
+        next.x - prev.x,
+        next.y - prev.y,
         rect.width / panesRef.current,
         rect.height,
       );
-      d.x = e.clientX;
-      d.y = e.clientY;
       setView((v) => panBy(v, dx, dy));
     },
     [containerRef],
   );
 
-  const endDrag = useCallback((e: ReactPointerEvent<HTMLElement>) => {
-    if (drag.current?.id !== e.pointerId) return;
-    drag.current = null;
-    setDragging(false);
-  }, []);
+  const endDrag = useCallback(
+    (e: ReactPointerEvent<HTMLElement>) => {
+      if (!pointers.current.delete(e.pointerId)) return;
+      // Going from two fingers to one resumes panning with the remaining finger.
+      startPinchIfTwo();
+      if (pointers.current.size === 0) setDragging(false);
+    },
+    [startPinchIfTwo],
+  );
 
   return {
     view,

@@ -114,6 +114,15 @@ describe('deriveAssetStatus', () => {
     });
   });
 
+  it('SUCCEEDED never shows a stale frame counter, FAILED/CANCELLED neither', () => {
+    for (const state of ['SUCCEEDED', 'FAILED', 'CANCELLED'] as const) {
+      const s = deriveAssetStatus(
+        asset('READY', job({ state, stage: 'enhance', processedFrames: 120, totalFrames: 200 })),
+      );
+      expect(s.detail).toBeNull();
+    }
+  });
+
   it('FAILED shows the error code', () => {
     const s = deriveAssetStatus(asset('READY', job({ state: 'FAILED', errorCode: 'OOM' })));
     expect(s.label).toBe(`${T.failed}: OOM`);

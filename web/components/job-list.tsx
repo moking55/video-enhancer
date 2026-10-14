@@ -94,17 +94,17 @@ export function JobList() {
           const stage = job.state === 'RUNNING' ? stageText(job.stage) : null;
           const name = names[job.assetId] ?? `วิดีโอ ${job.assetId.slice(0, 8)}`;
           return (
-            <li key={job.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 p-3">
+            <li key={job.id} className="flex flex-wrap items-center gap-x-4 gap-y-1.5 p-3">
               <Link
                 href={`/jobs/${job.id}`}
-                className="min-w-0 flex-1 truncate font-medium underline underline-offset-2"
+                className="min-w-0 basis-full truncate font-medium underline underline-offset-2 sm:basis-0 sm:flex-1"
               >
                 {name}
                 <span className="sr-only"> ({job.presetId} เปิดดูรายละเอียดงาน)</span>
               </Link>
-              <span className="text-sm text-zinc-600 dark:text-zinc-400">{job.presetId}</span>
+              <span className="break-all text-sm text-zinc-600 dark:text-zinc-400">{job.presetId}</span>
               <span
-                className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${stateBadgeClass(job.state)}`}
+                className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-sm font-medium ${stateBadgeClass(job.state)}`}
               >
                 {jobStateText(job)}
               </span>

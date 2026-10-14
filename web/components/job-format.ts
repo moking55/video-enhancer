@@ -14,6 +14,7 @@ const STAGE_TEXT: Record<string, string> = {
   probe: "กำลังตรวจสอบวิดีโอ",
   enhance: "กำลังปรับปรุงเฟรม",
   encode: "กำลังเข้ารหัสวิดีโอ",
+  verify: "กำลังตรวจผลลัพธ์",
   upload: "กำลังอัปโหลดผลลัพธ์",
 };
 
@@ -46,6 +47,38 @@ export function formatFrames(processed: number | null, total: number | null): st
     return `${processed ?? 0} / ${total} เฟรม${pct === null ? "" : ` (${pct}%)`}`;
   }
   return `${processed ?? 0} เฟรม`;
+}
+
+/** What the progress UI shows for one job (see {@link jobProgressDisplay}). */
+export type ProgressDisplay = {
+  /** Native <progress> values, or null when no bar is shown. */
+  bar: { value: number; max: number } | null;
+  /** Text under the bar (frame counter or "เสร็จแล้ว"), or null. */
+  text: string | null;
+};
+
+export const PROGRESS_DONE_TEXT = "เสร็จแล้ว";
+
+/**
+ * Progress shown for a job:
+ * - SUCCEEDED: full bar and "เสร็จแล้ว"; never the stored frame counter, which can be
+ *   a stale partial value (e.g. 120/200) when the last progress write was missed.
+ * - RUNNING: bar (when the total is known) and the frame counter.
+ * - QUEUED / FAILED / CANCELLED / unknown: nothing.
+ */
+export function jobProgressDisplay(
+  job: Pick<JobDto, "state" | "processedFrames" | "totalFrames">,
+): ProgressDisplay {
+  if (job.state === "SUCCEEDED") return { bar: { value: 1, max: 1 }, text: PROGRESS_DONE_TEXT };
+  if (job.state !== "RUNNING") return { bar: null, text: null };
+  const percent = progressPercent(job.processedFrames, job.totalFrames);
+  return {
+    bar:
+      percent !== null
+        ? { value: job.processedFrames ?? 0, max: job.totalFrames ?? 0 }
+        : null,
+    text: formatFrames(job.processedFrames, job.totalFrames),
+  };
 }
 
 const DATE_TIME = new Intl.DateTimeFormat("th-TH", { dateStyle: "medium", timeStyle: "short" });

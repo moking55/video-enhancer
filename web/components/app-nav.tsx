@@ -25,17 +25,17 @@ export function AppNav({ isOperator }: { isOperator: boolean }) {
   ];
 
   return (
-    <nav aria-label="เมนูหลัก">
-      <ul className="flex flex-wrap items-center gap-1">
+    <nav aria-label="เมนูหลัก" className="min-w-0">
+      <ul className="-mx-1 flex items-center gap-1 overflow-x-auto px-1 py-1 sm:mx-0 sm:px-0">
         {items.map((item) => {
           const active = isActive(item.href, pathname);
           return (
-            <li key={item.href}>
+            <li key={item.href} className="shrink-0">
               <Link
                 href={item.href}
                 aria-current={active ? 'page' : undefined}
                 className={
-                  'rounded-md px-3 py-1 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ' +
+                  'flex min-h-11 items-center whitespace-nowrap rounded-lg px-3 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 sm:min-h-9 ' +
                   (active
                     ? 'bg-zinc-900 font-medium text-white dark:bg-zinc-100 dark:text-zinc-900'
                     : 'text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800')

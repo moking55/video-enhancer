@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 /** Worker <-> API contract (SPEC "API -> Worker"). Documented in docs/worker-contract.md. */
 
-export const WORKER_STAGES = ['download', 'probe', 'enhance', 'encode', 'upload'] as const;
+export const WORKER_STAGES = ['download', 'probe', 'enhance', 'encode', 'verify', 'upload'] as const;
 export type WorkerStage = (typeof WORKER_STAGES)[number];
 
 /** Link lifetimes. Input GET must outlive a long queue run; output PUT is requested late. */

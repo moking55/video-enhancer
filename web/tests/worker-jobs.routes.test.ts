@@ -29,7 +29,7 @@ function chain(table: string) {
     single: settle,
     then: (res: (v: Result) => unknown, rej?: (e: unknown) => unknown) => settle().then(res, rej),
   };
-  for (const f of ['eq', 'is', 'in', 'order', 'limit']) {
+  for (const f of ['eq', 'is', 'in', 'order', 'limit', 'or']) {
     api[f] = (...args: unknown[]) => {
       call.filters.push([f, ...args]);
       return api;
@@ -87,6 +87,8 @@ type JobState = {
   state: string;
   attempt_id: string | null;
   cancel_requested: boolean;
+  total_frames: number | null;
+  processed_frames: number | null;
 };
 let job: JobState | null;
 
@@ -96,12 +98,25 @@ const fresh = (over: Partial<JobState> = {}): JobState => ({
   state: 'RUNNING',
   attempt_id: ATTEMPT,
   cancel_requested: false,
+  total_frames: null,
+  processed_frames: null,
   ...over,
 });
 
 const matches = (c: Call) =>
   c.filters.every(([f, col, val]) => {
-    if (f !== 'eq' || !job) return true;
+    if (!job) return true;
+    if (f === 'or') {
+      // 'processed_frames.is.null,processed_frames.lt.N'
+      const cur = job.processed_frames;
+      return String(col)
+        .split(',')
+        .some((cond) => {
+          const [, op, v] = cond.split('.');
+          return op === 'is' ? cur === null : cur !== null && cur < Number(v);
+        });
+    }
+    if (f !== 'eq') return true;
     if (col === 'id') return val === JOB;
     return (job as unknown as Record<string, unknown>)[col as string] === val;
   });
@@ -211,8 +226,16 @@ describe('POST /api/v1/worker/jobs/[id]/[action]', () => {
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ cancelRequested: false });
 
-      const [upd] = jobUpdates();
-      expect(upd.payload).toMatchObject({ stage: 'enhance', processed_frames: 10, total_frames: 100 });
+      const [upd, progressUpd] = jobUpdates();
+      expect(upd.payload).toMatchObject({ stage: 'enhance', total_frames: 100 });
+      expect(progressUpd.payload).toEqual({ processed_frames: 10 });
+      expect(progressUpd.filters).toEqual(
+        expect.arrayContaining([
+          ['eq', 'attempt_id', ATTEMPT],
+          ['eq', 'state', 'RUNNING'],
+        ]),
+      );
+      expect(job?.processed_frames).toBe(10);
       expect(typeof upd.payload?.heartbeat_at).toBe('string');
       expect(upd.filters.some((f) => f[1] === 'owner_id')).toBe(false);
       expect(upd.filters).toEqual(
@@ -234,6 +257,24 @@ describe('POST /api/v1/worker/jobs/[id]/[action]', () => {
       await req('heartbeat', { attemptId: ATTEMPT, stage: 'download' });
       expect(jobUpdates()[0].payload).not.toHaveProperty('processed_frames');
       expect(jobUpdates()[0].payload).not.toHaveProperty('total_frames');
+    });
+
+    it('never decreases processed_frames (out-of-order heartbeat)', async () => {
+      await req('heartbeat', { attemptId: ATTEMPT, stage: 'enhance', processedFrames: 120, totalFrames: 200 });
+      expect(job?.processed_frames).toBe(120);
+      const res = await req('heartbeat', { attemptId: ATTEMPT, stage: 'enhance', processedFrames: 90, totalFrames: 200 });
+      expect(res.status).toBe(200);
+      expect(job?.processed_frames).toBe(120);
+      await req('heartbeat', { attemptId: ATTEMPT, stage: 'upload', processedFrames: 200, totalFrames: 200 });
+      expect(job?.processed_frames).toBe(200);
+      expect(job?.total_frames).toBe(200);
+    });
+
+    it('a stale attempt cannot move progress', async () => {
+      job = fresh({ processed_frames: 5 });
+      const res = await req('heartbeat', { attemptId: OLD_ATTEMPT, stage: 'enhance', processedFrames: 50 });
+      expect(res.status).toBe(409);
+      expect(job?.processed_frames).toBe(5);
     });
 
     it('stores probe on the job asset only for stage probe', async () => {
@@ -309,6 +350,23 @@ describe('POST /api/v1/worker/jobs/[id]/[action]', () => {
           ['eq', 'state', 'RUNNING'],
         ]),
       );
+    });
+
+    it('sets processed_frames = total_frames (last known total) and clears stage on success', async () => {
+      job = fresh({ processed_frames: 120, total_frames: 200 });
+      headObject.mockResolvedValue({ size: OUTPUT_META.sizeBytes });
+      const res = await req('complete', body);
+      expect(res.status).toBe(200);
+      expect(job?.processed_frames).toBe(200);
+      expect(job?.total_frames).toBe(200);
+      expect(jobUpdates()[0].payload).toMatchObject({ stage: null, processed_frames: 200 });
+    });
+
+    it('falls back to outputMeta.frames when the total was never reported', async () => {
+      headObject.mockResolvedValue({ size: OUTPUT_META.sizeBytes });
+      await req('complete', body);
+      expect(job?.processed_frames).toBe(OUTPUT_META.frames);
+      expect(job?.total_frames).toBe(OUTPUT_META.frames);
     });
 
     it('cancel_requested -> CANCELLED (never SUCCEEDED) and 409 CANCELLED', async () => {

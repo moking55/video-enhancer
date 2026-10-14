@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { formatDateTime } from '@/components/job-format';
 import { deriveAssetStatus, hasActiveJob, type StatusTone } from '@/components/asset-status';
 import { PresetPicker } from '@/components/preset-picker';
+import { Button, buttonClass } from '@/components/ui/button';
 import { usePolling } from '@/components/use-polling';
 import { ASSETS_CHANGED_EVENT } from '@/lib/client-meta';
 import { MIB } from '@/lib/contracts/presets';
@@ -58,10 +59,8 @@ const BADGE_CLASS: Record<StatusTone, string> = {
   danger: 'border-red-700 text-red-800 dark:border-red-500 dark:text-red-300',
 };
 
-const FOCUS =
-  'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600';
-const BTN = `rounded-md border border-zinc-300 px-3 py-1 text-sm disabled:opacity-50 dark:border-zinc-700 ${FOCUS}`;
-const BTN_PRIMARY = `rounded-md bg-zinc-900 px-3 py-1 text-sm font-medium text-white dark:bg-zinc-100 dark:text-zinc-900 ${FOCUS}`;
+/** Row action buttons share the row evenly on phones and shrink to content on wider screens. */
+const ACTION = 'min-w-[8rem] flex-1 sm:flex-none';
 
 function formatSize(bytes: number): string {
   return `${(bytes / MIB).toFixed(1)} MiB`;
@@ -159,7 +158,7 @@ export function AssetList() {
 
   return (
     <section aria-labelledby="assets-heading" className="flex flex-col gap-3">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h2
           id="assets-heading"
           ref={headingRef}
@@ -168,9 +167,9 @@ export function AssetList() {
         >
           {TEXT.heading}
         </h2>
-        <button type="button" onClick={() => void load()} className={BTN}>
+        <Button variant="secondary" size="sm" onClick={() => void load()}>
           {TEXT.refresh}
-        </button>
+        </Button>
       </div>
 
       <p role="status" className="text-sm">
@@ -202,10 +201,10 @@ export function AssetList() {
             return (
               <li
                 key={asset.id}
-                className="flex flex-col gap-2 rounded-md border border-zinc-300 p-4 dark:border-zinc-700"
+                className="flex flex-col gap-3 rounded-lg border border-zinc-300 p-4 dark:border-zinc-700"
               >
-                <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <h3 className="break-all font-medium">{asset.filename}</h3>
+                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-baseline sm:justify-between">
+                  <h3 className="min-w-0 break-all font-medium">{asset.filename}</h3>
                   <span className="flex flex-wrap items-center gap-2 text-sm">
                     <span className="sr-only">{TEXT.statusLabel}:</span>
                     <span
@@ -220,7 +219,7 @@ export function AssetList() {
                     ) : null}
                   </span>
                 </div>
-                <dl className="grid grid-cols-[auto_1fr] gap-x-3 text-sm text-zinc-600 dark:text-zinc-400">
+                <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-sm text-zinc-600 dark:text-zinc-400 [&>dd]:min-w-0 [&>dd]:break-words">
                   <dt>{TEXT.size}</dt>
                   <dd>{formatSize(asset.sizeBytes)}</dd>
                   <dt>{TEXT.resolution}</dt>
@@ -243,49 +242,56 @@ export function AssetList() {
                   {actions.jobLink && job ? (
                     <Link
                       href={`/jobs/${job.id}`}
-                      className={actions.jobLink === 'progress' ? BTN_PRIMARY : BTN}
+                      className={buttonClass({
+                        variant: actions.jobLink === 'compare' ? 'primary' : 'secondary',
+                        size: 'sm',
+                        className: ACTION,
+                      })}
                     >
                       {jobLinkText}
                       <span className="sr-only"> {asset.filename}</span>
                     </Link>
                   ) : null}
                   {actions.enhance ? (
-                    <button
-                      type="button"
+                    <Button
+                      variant={actions.enhance === 'enhance' ? 'primary' : 'secondary'}
+                      size="sm"
                       aria-expanded={open}
                       aria-controls={panelId}
                       onClick={() => setEnhanceId(open ? null : asset.id)}
-                      className={actions.enhance === 'enhance' ? BTN_PRIMARY : BTN}
+                      className={ACTION}
                     >
                       {actions.enhance === 'enhance' ? TEXT.enhance : TEXT.enhanceAgain}
                       <span className="sr-only"> {asset.filename}</span>
-                    </button>
+                    </Button>
                   ) : null}
                   {actions.cancel && job ? (
-                    <button
-                      type="button"
+                    <Button
+                      variant="danger"
+                      size="sm"
                       onClick={() => void cancelJob(job.id)}
                       disabled={cancelling}
-                      className={BTN}
+                      className={ACTION}
                     >
                       {cancelling ? TEXT.cancelling : TEXT.cancel}
                       <span className="sr-only"> {asset.filename}</span>
-                    </button>
+                    </Button>
                   ) : null}
-                  <button
-                    type="button"
+                  <Button
+                    variant="danger"
+                    size="sm"
                     onClick={() => void remove(asset)}
                     disabled={deleting || !actions.deleteEnabled}
                     title={actions.deleteDisabledReason ?? undefined}
                     aria-describedby={actions.deleteDisabledReason ? hintId : undefined}
-                    className={BTN}
+                    className={ACTION}
                   >
                     {deleting ? TEXT.deleting : TEXT.delete}
                     <span className="sr-only"> {asset.filename}</span>
-                  </button>
+                  </Button>
                 </div>
                 {actions.deleteDisabledReason ? (
-                  <p id={hintId} className="text-xs text-zinc-600 dark:text-zinc-400">
+                  <p id={hintId} className="text-sm text-zinc-600 dark:text-zinc-400">
                     {actions.deleteDisabledReason}
                   </p>
                 ) : null}

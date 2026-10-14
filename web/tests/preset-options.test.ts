@@ -6,7 +6,10 @@ import {
   CPU_CAPABLE_NOTE_TH,
   cpuCapableNoteTh,
   defaultPresetId,
+  hiddenPresetsLabelTh,
+  noPresetAdviceTh,
   resolveChosenPresetId,
+  splitPresetRows,
   type PresetOption,
 } from '@/lib/preset-options';
 
@@ -128,5 +131,63 @@ describe('cpuCapableNoteTh', () => {
     expect(anime.compat.ok).toBe(true);
     // 300 frames x 0.2304 MP x (0.16 / 0.2304) s + 60 s overhead: the measured T4 number, no CPU factor.
     expect(anime.estimateSec).toBeCloseTo(60 + 300 * 0.16, 5);
+  });
+});
+
+describe('splitPresetRows', () => {
+  it('keeps every preset visible before a file is known', () => {
+    const rows = buildPresetRows(presets, { width: 3840, height: 2160, durationSec: 5 });
+    const { visible, hidden } = splitPresetRows(rows, false);
+    expect(visible).toHaveLength(rows.length);
+    expect(hidden).toHaveLength(0);
+  });
+
+  it('hides incompatible presets once a file is known', () => {
+    const rows = buildPresetRows(presets, { width: 1920, height: 1080, durationSec: 5 });
+    const { visible, hidden } = splitPresetRows(rows, true);
+    expect(visible.every((r) => r.compat.ok)).toBe(true);
+    expect(hidden.every((r) => !r.compat.ok)).toBe(true);
+    expect(visible.length + hidden.length).toBe(rows.length);
+    expect(hidden.map((r) => r.preset.id)).toContain('realesrgan-fast-x4');
+    expect(visible.map((r) => r.preset.id)).toContain('realesrgan-x2');
+  });
+
+  it('keeps the default selection inside the visible list', () => {
+    const rows = buildPresetRows(presets, { width: 1920, height: 1080, durationSec: 5 });
+    const { visible } = splitPresetRows(rows, true);
+    expect(visible.map((r) => r.preset.id)).toContain(resolveChosenPresetId(rows, null));
+  });
+
+  it('hides nothing when everything fits', () => {
+    const rows = buildPresetRows(presets, { width: 640, height: 360, durationSec: 5 });
+    expect(splitPresetRows(rows, true).hidden).toHaveLength(0);
+  });
+});
+
+describe('hiddenPresetsLabelTh', () => {
+  it('counts the hidden presets', () => {
+    expect(hiddenPresetsLabelTh(3)).toBe('ซ่อน 3 ตัวเลือกที่ใช้กับไฟล์นี้ไม่ได้');
+  });
+});
+
+describe('noPresetAdviceTh', () => {
+  it('suggests downscaling when the resolution is too high', () => {
+    const rows = buildPresetRows(presets, { width: 3840, height: 2160, durationSec: 5 });
+    expect(splitPresetRows(rows, true).visible).toHaveLength(0);
+    const text = noPresetAdviceTh(rows);
+    expect(text).toContain('ไม่มี preset');
+    expect(text).toContain('ลดความละเอียด');
+  });
+
+  it('suggests a shorter clip when the video is too long', () => {
+    const rows = buildPresetRows(presets, { width: 640, height: 360, durationSec: 121 });
+    const text = noPresetAdviceTh(rows);
+    expect(text).toContain('ตัดเป็นคลิปที่สั้นลง');
+    expect(text).not.toContain('ลดความละเอียด');
+  });
+
+  it('suggests a smaller file when the file is too large', () => {
+    const rows = buildPresetRows(presets, { sizeBytes: 501 * MIB });
+    expect(noPresetAdviceTh(rows)).toContain('ไฟล์ใหญ่เกินไป');
   });
 });

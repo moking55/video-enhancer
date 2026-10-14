@@ -110,3 +110,55 @@ export function describeCompatIssueTh(issue: CompatIssue, presetLabel: string): 
 export function compatReasonTh(compat: PresetCompatibility, presetLabel: string): string | null {
   return compat.ok ? null : describeCompatIssueTh(compat.issue, presetLabel);
 }
+
+export type PresetRowSplit = {
+  /** Presets that can run on the file (always all rows when nothing is hidden). */
+  visible: PresetRow[];
+  /** Presets that cannot run on the file; shown only on demand, with their reasons. */
+  hidden: PresetRow[];
+};
+
+/**
+ * Splits rows into usable and unusable. With `hideIncompatible` false (no file
+ * chosen yet, so nothing is known) every row stays visible.
+ */
+export function splitPresetRows(
+  rows: readonly PresetRow[],
+  hideIncompatible: boolean,
+): PresetRowSplit {
+  if (!hideIncompatible) return { visible: [...rows], hidden: [] };
+  return {
+    visible: rows.filter((r) => r.compat.ok),
+    hidden: rows.filter((r) => !r.compat.ok),
+  };
+}
+
+/** "ซ่อน 3 ตัวเลือกที่ใช้กับไฟล์นี้ไม่ได้" */
+export function hiddenPresetsLabelTh(count: number): string {
+  return `ซ่อน ${count} ตัวเลือกที่ใช้กับไฟล์นี้ไม่ได้`;
+}
+
+/**
+ * Message for when no preset fits the file: says why (from the structured
+ * issues) and what to change (downscale, shorter clip, smaller file).
+ */
+export function noPresetAdviceTh(rows: readonly PresetRow[]): string {
+  const kinds = new Set<CompatIssue['kind']>();
+  for (const r of rows) if (!r.compat.ok) kinds.add(r.compat.issue.kind);
+
+  const tips: string[] = [];
+  if (kinds.has('dimensions')) {
+    tips.push('ความละเอียดของวิดีโอสูงเกินไป ลองลดความละเอียด (downscale) ของวิดีโอก่อนอัปโหลด');
+  }
+  if (kinds.has('size')) {
+    tips.push('ไฟล์ใหญ่เกินไป ลองบีบอัดไฟล์ให้เล็กลง');
+  }
+  if (kinds.has('duration')) {
+    tips.push('วิดีโอยาวเกินไป ลองตัดเป็นคลิปที่สั้นลง');
+  }
+  if (kinds.has('too_slow') && !kinds.has('duration')) {
+    tips.push('ใช้เวลาประมวลผลนานเกินไป ลองใช้คลิปที่สั้นลงหรือมีความละเอียดต่ำลง');
+  }
+  if (tips.length === 0) tips.push('ลองใช้ไฟล์ที่สั้นลงหรือมีความละเอียดต่ำลง');
+  return `ไม่มี preset ที่ใช้กับวิดีโอนี้ได้ ${tips.join(' ')}`;
+}

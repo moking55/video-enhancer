@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { formatDateTime } from "@/components/job-format";
+import { Button } from "@/components/ui/button";
 import { apiErrorText } from "@/lib/error-messages";
 
 type Props = { initialActive: boolean; initialCreatedAt: string | null };
@@ -66,38 +67,29 @@ export function WorkerTokenPanel({ initialActive, initialCreatedAt }: Props) {
       </p>
 
       <div>
-        <button
-          type="button"
-          onClick={generate}
-          disabled={busy}
-          className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
-        >
+        <Button variant="primary" onClick={generate} disabled={busy} className="w-full sm:w-auto">
           {busy ? "กำลังสร้าง..." : "สร้าง token ใหม่"}
-        </button>
+        </Button>
       </div>
 
       {error ? <p role="alert">{error}</p> : null}
 
       {token ? (
-        <div className="flex flex-col gap-2 rounded-md border border-zinc-300 p-4 dark:border-zinc-700">
+        <div className="flex flex-col gap-2 rounded-lg border border-zinc-300 p-4 dark:border-zinc-700">
           <label htmlFor="worker-token" className="text-sm font-medium">
             Token ใหม่ (แสดงครั้งเดียวเท่านั้น)
           </label>
-          <div className="flex gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row">
             <input
               id="worker-token"
               readOnly
               value={token}
               onFocus={(e) => e.currentTarget.select()}
-              className="min-w-0 flex-1 rounded-md border border-zinc-300 bg-transparent px-3 py-2 font-mono text-sm dark:border-zinc-700"
+              className="min-h-11 min-w-0 flex-1 rounded-lg border border-zinc-300 bg-transparent px-3 py-2 font-mono text-sm dark:border-zinc-700"
             />
-            <button
-              type="button"
-              onClick={copy}
-              className="rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700"
-            >
+            <Button variant="secondary" onClick={copy}>
               {copied ? "คัดลอกแล้ว" : "คัดลอก"}
-            </button>
+            </Button>
           </div>
           <p role="status" className="text-sm">
             กรุณาคัดลอกหรือบันทึกไว้ทันที เนื่องจากจะไม่แสดงอีก

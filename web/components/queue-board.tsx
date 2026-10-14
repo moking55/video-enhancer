@@ -76,8 +76,8 @@ export function QueueBoard() {
               job.state === 'RUNNING' ? formatFrames(job.processedFrames, job.totalFrames) : null;
             const stage = job.state === 'RUNNING' ? stageText(job.stage) : null;
             return (
-              <li key={job.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 p-3">
-                <div className="min-w-0 flex-1">
+              <li key={job.id} className="flex flex-wrap items-center gap-x-4 gap-y-1.5 p-3">
+                <div className="min-w-0 basis-full sm:basis-0 sm:flex-1">
                   <p className="truncate font-medium">
                     {job.filename ?? `งาน ${job.id.slice(0, 8)}`}
                   </p>
@@ -85,9 +85,9 @@ export function QueueBoard() {
                     {job.ownerEmail ?? 'ไม่ทราบผู้ใช้'}
                   </p>
                 </div>
-                <span className="text-sm text-zinc-600 dark:text-zinc-400">{job.presetId}</span>
+                <span className="break-all text-sm text-zinc-600 dark:text-zinc-400">{job.presetId}</span>
                 <span
-                  className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${stateBadgeClass(job.state)}`}
+                  className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-sm font-medium ${stateBadgeClass(job.state)}`}
                 >
                   {jobStateText({ ...job, cancelRequested: false })}
                 </span>

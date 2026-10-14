@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { CompareViewer } from '@/components/compare/compare-viewer';
 import { JobStatus } from '@/components/job-status';
+import { Button } from '@/components/ui/button';
 import { apiErrorText } from '@/lib/error-messages';
 import type { JobDto } from '@/lib/contracts/jobs';
 import type { AssetDto } from '@/lib/contracts/uploads';
@@ -95,9 +96,9 @@ export function JobDetail({ jobId }: { jobId: string }) {
           {mediaError ? (
             <p role="alert" className="text-sm text-red-700 dark:text-red-400">
               {mediaError}{' '}
-              <button type="button" className="underline" onClick={() => void loadMedia()}>
+              <Button variant="secondary" size="sm" onClick={() => void loadMedia()}>
                 ลองอีกครั้ง
-              </button>
+              </Button>
             </p>
           ) : null}
           {media?.output && outputWidth && outputHeight ? (
@@ -120,7 +121,7 @@ export function JobDetail({ jobId }: { jobId: string }) {
       ) : null}
 
       <p>
-        <Link href="/jobs" className="text-sm underline underline-offset-2">
+        <Link href="/jobs" className="inline-flex min-h-11 items-center text-sm underline underline-offset-2">
           กลับไปหน้างานทั้งหมด
         </Link>
       </p>

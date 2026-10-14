@@ -47,12 +47,13 @@ type JobHead = {
   state: string;
   attempt_id: string | null;
   cancel_requested: boolean;
+  total_frames: number | null;
 };
 
 async function loadJob({ admin, jobId }: WorkerJobContext): Promise<WorkerJobResult<JobHead>> {
   const { data, error } = await admin
     .from('jobs')
-    .select('asset_id, state, attempt_id, cancel_requested')
+    .select('asset_id, state, attempt_id, cancel_requested, total_frames')
     .eq('id', jobId)
     .maybeSingle();
   if (error) return internal(error.message);
@@ -87,7 +88,6 @@ export async function heartbeat(
     heartbeat_at: new Date().toISOString(),
     stage: body.stage,
   };
-  if (body.processedFrames !== undefined) patch.processed_frames = body.processedFrames;
   if (body.totalFrames !== undefined) patch.total_frames = body.totalFrames;
 
   const { data, error } = await fencedUpdate(ctx, body.attemptId, patch)
@@ -95,6 +95,17 @@ export async function heartbeat(
     .maybeSingle();
   if (error) return internal(error.message);
   if (!data) return stale();
+
+  // Progress only moves forward within an attempt: a delayed/out-of-order request must not rewind
+  // it. The fence stays (attempt + RUNNING); the extra condition makes it an atomic "greatest".
+  if (body.processedFrames !== undefined) {
+    const n = body.processedFrames;
+    const { error: progressErr } = await fencedUpdate(ctx, body.attemptId, { processed_frames: n })
+      .or(`processed_frames.is.null,processed_frames.lt.${n}`)
+      .select('id')
+      .maybeSingle();
+    if (progressErr) return internal(progressErr.message);
+  }
 
   if (body.probe && body.stage === 'probe') {
     const { error: probeErr } = await ctx.admin
@@ -151,6 +162,8 @@ export async function complete(
   }
 
   const now = new Date().toISOString();
+  // The job is done: show all frames processed (total known from the heartbeats, else the output's).
+  const finalFrames = job.data.total_frames ?? body.outputMeta.frames;
   // A user cancel can land between our read and the update. The success update
   // is guarded on cancel_requested=false; if it loses, re-read once and re-decide.
   let cancelRequested = job.data.cancel_requested;
@@ -169,6 +182,8 @@ export async function complete(
     const { data, error } = await fencedUpdate(ctx, attemptId, {
       state: 'SUCCEEDED',
       stage: null,
+      processed_frames: finalFrames,
+      total_frames: finalFrames,
       output_key: key,
       output_meta: body.outputMeta as unknown as Json,
       finished_at: now,
