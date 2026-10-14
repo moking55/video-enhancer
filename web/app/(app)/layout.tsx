@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { Suspense, type ReactNode } from "react";
 
 import { logout } from "./actions";
+import { AppNav } from "@/components/app-nav";
 import { AuthError, requireUser } from "@/lib/auth";
 
 function LogoutButton() {
@@ -45,22 +46,18 @@ async function UserGate({ children }: { children: ReactNode }) {
 
   return (
     <>
-      <header className="flex items-center justify-between gap-4 border-b border-zinc-200 px-6 py-3 dark:border-zinc-800">
-        <span className="font-semibold">Video Enhancer</span>
-        <div className="flex items-center gap-3">
-          {isOperator ? (
-            <Link href="/queue" className="text-sm underline underline-offset-2">
-              Queue
-            </Link>
-          ) : null}
-          {isOperator ? (
-            <Link href="/settings" className="text-sm underline underline-offset-2">
-              Settings
-            </Link>
-          ) : null}
-          <span className="text-sm text-zinc-600 dark:text-zinc-400">
-            {email}
-          </span>
+      <header className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-b border-zinc-200 px-4 py-3 sm:px-6 dark:border-zinc-800">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <Link
+            href="/"
+            className="rounded-md font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+          >
+            Video Enhancer
+          </Link>
+          <AppNav isOperator={isOperator} />
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="break-all text-sm text-zinc-600 dark:text-zinc-400">{email}</span>
           <LogoutButton />
         </div>
       </header>

@@ -168,7 +168,7 @@ export function AssetList() {
                       onClick={() => setEnhanceId(open ? null : asset.id)}
                       className="rounded-md bg-zinc-900 px-3 py-1 text-sm font-medium text-white dark:bg-zinc-100 dark:text-zinc-900"
                     >
-                      Enhance
+                      Enhance again
                     </button>
                   ) : null}
                   <button

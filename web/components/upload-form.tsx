@@ -1,7 +1,9 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import { useEffect, useId, useRef, useState } from 'react';
 
+import { PresetOptions, usePresets } from '@/components/preset-options';
 import {
   ASSETS_CHANGED_EVENT,
   checkClientLimits,
@@ -10,8 +12,11 @@ import {
 } from '@/lib/client-meta';
 import { MIB } from '@/lib/contracts/presets';
 import type { CreateUploadResponse } from '@/lib/contracts/uploads';
+import { buildPresetRows, resolveChosenPresetId } from '@/lib/preset-options';
 
-type Phase = 'idle' | 'reading' | 'ready' | 'uploading' | 'done' | 'error';
+type Phase = 'idle' | 'reading' | 'ready' | 'uploading' | 'queuing' | 'error';
+/** Which step failed, so the error text and "Try again" make sense. */
+type Stage = 'upload' | 'job';
 
 class UploadError extends Error {}
 
@@ -62,7 +67,13 @@ function describeMeta(file: File, meta: VideoMeta): string {
   return parts.join(', ');
 }
 
+/**
+ * Pick a file, pick a preset, one click: upload, complete, create the job and
+ * open it. The job API has no idempotency key, so double submits are blocked
+ * with a synchronous in-flight flag.
+ */
 export function UploadForm() {
+  const router = useRouter();
   const inputId = useId();
   const hintId = useId();
   const [file, setFile] = useState<File | null>(null);
@@ -70,11 +81,18 @@ export function UploadForm() {
   const [phase, setPhase] = useState<Phase>('idle');
   const [problems, setProblems] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [errorStage, setErrorStage] = useState<Stage>('upload');
   const [percent, setPercent] = useState(0);
+  const [selected, setSelected] = useState<string | null>(null);
+  const { presets, loadError } = usePresets();
   const inputRef = useRef<HTMLInputElement>(null);
   const errorRef = useRef<HTMLDivElement>(null);
   /** Set once the bytes are stored, so a retry only needs to call complete. */
   const uploadedAssetId = useRef<string | null>(null);
+  /** Set once the asset is READY, so a retry only needs to create the job. */
+  const readyAssetId = useRef<string | null>(null);
+  /** Synchronous guard against a double click before React re-renders. */
+  const inFlight = useRef(false);
   /** Guards stale metadata reads when the user picks another file quickly. */
   const selection = useRef(0);
 
@@ -82,10 +100,19 @@ export function UploadForm() {
     if (error) errorRef.current?.focus();
   }, [error]);
 
+  const rows = buildPresetRows(presets ?? [], {
+    width: meta.width,
+    height: meta.height,
+    durationSec: meta.durationSec,
+    sizeBytes: file?.size,
+  });
+  const chosen = resolveChosenPresetId(rows, selected);
+
   async function onPick(e: React.ChangeEvent<HTMLInputElement>) {
     const picked = e.target.files?.[0] ?? null;
     const token = ++selection.current;
     uploadedAssetId.current = null;
+    readyAssetId.current = null;
     setError(null);
     setPercent(0);
     setFile(picked);
@@ -103,58 +130,78 @@ export function UploadForm() {
     setPhase('ready');
   }
 
-  async function upload() {
-    if (!file || problems.length > 0) return;
+  async function submit() {
+    if (!file || problems.length > 0 || !chosen || inFlight.current) return;
+    inFlight.current = true;
+    let stage: Stage = 'upload';
     setError(null);
-    setPercent(0);
-    setPhase('uploading');
     try {
-      let assetId = uploadedAssetId.current;
-      if (!assetId) {
-        const target = await apiJson<CreateUploadResponse>('/api/v1/uploads', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            filename: file.name,
-            sizeBytes: file.size,
-            contentType: 'video/mp4',
-            clientMeta: meta,
-          }),
-        });
-        await putFile(target, file, (f) => setPercent(Math.round(f * 100)));
-        assetId = target.assetId;
-        uploadedAssetId.current = assetId;
+      if (!readyAssetId.current) {
+        setPercent(0);
+        setPhase('uploading');
+        let assetId = uploadedAssetId.current;
+        if (!assetId) {
+          const target = await apiJson<CreateUploadResponse>('/api/v1/uploads', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              filename: file.name,
+              sizeBytes: file.size,
+              contentType: 'video/mp4',
+              clientMeta: meta,
+            }),
+          });
+          await putFile(target, file, (f) => setPercent(Math.round(f * 100)));
+          assetId = target.assetId;
+          uploadedAssetId.current = assetId;
+        }
+        setPercent(100);
+        await apiJson(`/api/v1/assets/${assetId}/complete`, { method: 'POST' });
+        uploadedAssetId.current = null;
+        readyAssetId.current = assetId;
+        window.dispatchEvent(new Event(ASSETS_CHANGED_EVENT));
       }
-      setPercent(100);
-      await apiJson(`/api/v1/assets/${assetId}/complete`, { method: 'POST' });
-      uploadedAssetId.current = null;
-      setPhase('done');
-      setFile(null);
-      setMeta({});
-      if (inputRef.current) inputRef.current.value = '';
-      window.dispatchEvent(new Event(ASSETS_CHANGED_EVENT));
+
+      stage = 'job';
+      setPhase('queuing');
+      const job = await apiJson<{ id: string }>('/api/v1/jobs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assetId: readyAssetId.current, presetId: chosen }),
+      });
+      // Stay in 'queuing' (inFlight stays set) until the navigation replaces the page.
+      router.push(`/jobs/${job.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Upload failed.');
+      const message = err instanceof Error ? err.message : 'Something went wrong.';
+      setErrorStage(stage);
+      setError(
+        stage === 'job'
+          ? `Your video was uploaded, but it could not be queued: ${message}`
+          : message,
+      );
       setPhase('error');
+      inFlight.current = false;
       // An abandoned UPLOADING asset may exist; make it visible for cleanup.
       window.dispatchEvent(new Event(ASSETS_CHANGED_EVENT));
     }
   }
 
-  const uploading = phase === 'uploading';
+  const working = phase === 'uploading' || phase === 'queuing';
   const blocked = problems.length > 0;
+  const failed = phase === 'error';
+  const canSubmit = !!file && !blocked && !!chosen && phase === 'ready';
 
   return (
     <form
-      className="flex flex-col gap-3 rounded-md border border-zinc-300 p-4 dark:border-zinc-700"
+      className="flex flex-col gap-4 rounded-md border border-zinc-300 p-4 dark:border-zinc-700"
       onSubmit={(e) => {
         e.preventDefault();
-        void upload();
+        void submit();
       }}
     >
       <div className="flex flex-col gap-1">
         <label htmlFor={inputId} className="text-sm font-medium">
-          Video file (MP4)
+          1. Video file (MP4)
         </label>
         <input
           ref={inputRef}
@@ -162,7 +209,7 @@ export function UploadForm() {
           type="file"
           accept="video/mp4,.mp4"
           onChange={onPick}
-          disabled={uploading}
+          disabled={working}
           aria-describedby={hintId}
           className="text-sm"
         />
@@ -191,7 +238,29 @@ export function UploadForm() {
         </div>
       ) : null}
 
-      {uploading || (phase === 'error' && percent > 0) ? (
+      {loadError ? (
+        <p role="alert" className="text-sm text-red-700 dark:text-red-400">
+          {loadError}
+        </p>
+      ) : !presets ? (
+        <p className="text-sm text-zinc-600 dark:text-zinc-400">Loading presets...</p>
+      ) : (
+        <PresetOptions
+          rows={rows}
+          chosen={chosen}
+          onChange={setSelected}
+          disabled={working}
+          legend="2. Choose an enhancement preset"
+        />
+      )}
+
+      {file && presets && !blocked && !chosen && phase !== 'reading' ? (
+        <p role="alert" className="text-sm text-red-700 dark:text-red-400">
+          No preset fits this video. Try a shorter or smaller file.
+        </p>
+      ) : null}
+
+      {working || (failed && percent > 0) ? (
         <div className="flex items-center gap-2">
           <progress
             value={percent}
@@ -203,33 +272,43 @@ export function UploadForm() {
         </div>
       ) : null}
 
-      {phase === 'done' ? <p role="status">Upload complete. The file is ready below.</p> : null}
+      {phase === 'queuing' ? <p role="status">Upload complete. Adding to the queue...</p> : null}
 
       {error ? (
         <div
           ref={errorRef}
           tabIndex={-1}
           role="alert"
-          className="flex flex-wrap items-center gap-3 text-sm"
+          className="flex flex-wrap items-center gap-3 text-sm text-red-700 dark:text-red-400"
         >
           <span>{error}</span>
           <button
             type="button"
-            onClick={() => void upload()}
-            className="rounded-md border border-zinc-300 px-3 py-1 dark:border-zinc-700"
+            onClick={() => void submit()}
+            disabled={!chosen}
+            className="rounded-md border border-zinc-300 px-3 py-1 text-zinc-900 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-100"
           >
-            Retry upload
+            Try again
           </button>
+          {errorStage === 'job' ? (
+            <span className="text-zinc-600 dark:text-zinc-400">
+              The file is already uploaded; trying again will not upload it twice.
+            </span>
+          ) : null}
         </div>
       ) : null}
 
       <div>
         <button
           type="submit"
-          disabled={!file || blocked || uploading || phase === 'reading' || phase === 'error'}
-          className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
+          disabled={!canSubmit}
+          className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
         >
-          {uploading ? 'Uploading...' : 'Upload'}
+          {phase === 'uploading'
+            ? 'Uploading...'
+            : phase === 'queuing'
+              ? 'Queuing...'
+              : 'Upload & enhance'}
         </button>
       </div>
     </form>

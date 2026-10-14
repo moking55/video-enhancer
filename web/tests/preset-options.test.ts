@@ -1,0 +1,110 @@
+import { describe, expect, it } from 'vitest';
+
+import { listPresets } from '@/lib/contracts/presets';
+import {
+  buildPresetRows,
+  defaultPresetId,
+  resolveChosenPresetId,
+  type PresetOption,
+} from '@/lib/preset-options';
+
+const MIB = 1024 * 1024;
+
+const presets: PresetOption[] = listPresets().map(
+  ({ id, label, model, scale, maxInput, limits, note, secPerMegapixelFrame }) => ({
+    id,
+    label,
+    model,
+    scale,
+    maxInput,
+    limits,
+    secPerMegapixelFrame,
+    note: note ?? null,
+  }),
+);
+
+const byId = (rows: ReturnType<typeof buildPresetRows>, id: string) =>
+  rows.find((r) => r.preset.id === id)!;
+
+describe('defaultPresetId', () => {
+  it('prefers fast 4x when it fits', () => {
+    const rows = buildPresetRows(presets, { width: 640, height: 360, durationSec: 5 });
+    expect(defaultPresetId(rows)).toBe('realesrgan-fast-x4');
+  });
+
+  it('falls back to 2x when the input is too big for the 4x presets', () => {
+    const rows = buildPresetRows(presets, { width: 1920, height: 1080, durationSec: 5 });
+    expect(byId(rows, 'realesrgan-fast-x4').compat.ok).toBe(false);
+    expect(defaultPresetId(rows)).toBe('realesrgan-x2');
+  });
+
+  it('falls back to the first compatible preset when neither preferred one fits', () => {
+    const rows = buildPresetRows(
+      presets.filter((p) => p.id !== 'realesrgan-fast-x4' && p.id !== 'realesrgan-x2'),
+      { width: 640, height: 360, durationSec: 5 },
+    );
+    expect(defaultPresetId(rows)).toBe(rows.find((r) => r.compat.ok)!.preset.id);
+  });
+
+  it('is null when nothing fits', () => {
+    const rows = buildPresetRows(presets, { width: 3840, height: 2160, durationSec: 5 });
+    expect(rows.every((r) => !r.compat.ok)).toBe(true);
+    expect(defaultPresetId(rows)).toBeNull();
+  });
+
+  it('is usable before any metadata is known (nothing disabled)', () => {
+    const rows = buildPresetRows(presets, {});
+    expect(rows.every((r) => r.compat.ok && r.estimateSec === null)).toBe(true);
+    expect(defaultPresetId(rows)).toBe('realesrgan-fast-x4');
+  });
+});
+
+describe('buildPresetRows', () => {
+  it('gives disabled reasons for oversized dimensions, duration, size', () => {
+    const dim = buildPresetRows(presets, { width: 1920, height: 1080, durationSec: 5 });
+    const x4 = byId(dim, 'realesrgan-x4').compat;
+    expect(x4.ok).toBe(false);
+    if (!x4.ok) expect(x4.reason).toMatch(/exceeds/);
+
+    const dur = buildPresetRows(presets, { width: 640, height: 360, durationSec: 121 });
+    const d = byId(dur, 'realesrgan-x2').compat;
+    expect(d.ok).toBe(false);
+    if (!d.ok) expect(d.reason).toMatch(/Duration/);
+
+    const big = buildPresetRows(presets, { sizeBytes: 501 * MIB });
+    const s = byId(big, 'realesrgan-x2').compat;
+    expect(s.ok).toBe(false);
+    if (!s.ok) expect(s.reason).toMatch(/500 MiB/);
+  });
+
+  it('disables over-budget presets as too slow and keeps faster ones', () => {
+    const rows = buildPresetRows(presets, { width: 960, height: 540, durationSec: 120 });
+    const slow = byId(rows, 'realesrgan-x4').compat;
+    expect(slow.ok).toBe(false);
+    if (!slow.ok) expect(slow.code).toBe('PRESET_TOO_SLOW');
+    expect(byId(rows, 'realesrgan-fast-x4').compat.ok).toBe(true);
+  });
+
+  it('computes an estimate only when width, height and duration are known', () => {
+    expect(byId(buildPresetRows(presets, { width: 640, height: 360 }), 'realesrgan-x2').estimateSec).toBeNull();
+    const est = byId(
+      buildPresetRows(presets, { width: 640, height: 360, durationSec: 10 }),
+      'realesrgan-x2',
+    ).estimateSec;
+    expect(est).toBeGreaterThan(60);
+  });
+});
+
+describe('resolveChosenPresetId', () => {
+  const rows = buildPresetRows(presets, { width: 1920, height: 1080, durationSec: 5 });
+
+  it('keeps a usable selection', () => {
+    expect(resolveChosenPresetId(rows, 'realesrgan-x2')).toBe('realesrgan-x2');
+  });
+
+  it('ignores a disabled or unknown selection and uses the default', () => {
+    expect(resolveChosenPresetId(rows, 'realesrgan-x4')).toBe('realesrgan-x2');
+    expect(resolveChosenPresetId(rows, 'nope')).toBe('realesrgan-x2');
+    expect(resolveChosenPresetId(rows, null)).toBe('realesrgan-x2');
+  });
+});
