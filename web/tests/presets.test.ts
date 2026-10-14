@@ -166,6 +166,10 @@ describe('registry', () => {
     expect(x2.maxInput).toEqual({ width: 1920, height: 1080 });
     expect(x2.note).toBeUndefined();
     expect(preset('realesrgan-anime-x4').model).toBe('realesr-animevideov3');
+    // Only Anime 4x may run on the worker's CPU fallback (CPU_PRESETS in the worker).
+    expect(listPresets().filter((p) => p.cpuCapable).map((p) => p.id)).toEqual([
+      'realesrgan-anime-x4',
+    ]);
     expect(preset('realesrgan-fast-x4')).toMatchObject({
       model: 'realesr-general-x4v3',
       scale: 4,

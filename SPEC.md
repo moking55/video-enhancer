@@ -115,6 +115,8 @@ Output: MP4 H.264 yuv420p (h264_nvenc ถ้าใช้ได้ มิฉะ�
 
 **Runner performance (2026-10-14):** decode / GPU / encode แยก thread ต่อด้วยคิวจำกัดขนาด; tile ใหญ่สุดที่ไม่ OOM (เริ่มจาก 0 → 512 → 256 → 128 ตาม VRAM); batch หลายเฟรมเมื่อ tile=0; NVENC เมื่อ feature-test ผ่าน
 
+**CPU fallback (2026-10-14):** ถ้า session Colab ไม่มี GPU (โควตาหมด/GPU ไม่ว่าง) notebook ตัวเลือก `CPU_FALLBACK` (เปิดเป็นค่าเริ่มต้น) ให้ worker รันบน CPU แทนการหยุด (`--device auto|cuda|cpu`, auto = cuda ถ้ามี ไม่งั้น cpu): fp32, ทั้งเฟรม batch 1 (ล้นแรมค่อยลดเป็น tile 512 → 256 → 128), encode ด้วย libx264; **รับเฉพาะ preset Anime 4× (`realesrgan-anime-x4`)** โดยส่ง `presets` ใน claim ตามนั้น (ค่าคงที่เดียว `CPU_PRESETS` ใน runner เพิ่ม preset ได้ภายหลัง) และไม่ส่ง `gpu`; งาน preset อื่นยังเป็น `QUEUED` รอ session ที่มี GPU. ช้ากว่า GPU มาก (ประมาณการ 15–30× ยังไม่ได้วัดจริง) จึง**ประมาณเวลาและงบเวลาฝั่งเว็บยังคิดแบบ GPU (T4) เหมือนเดิม** (เว็บแค่แสดงหมายเหตุ "รันบน CPU ได้เมื่อ GPU ไม่ว่าง (ช้ากว่ามาก)" ที่ preset Anime 4×); worker log ความเร็วจริงต่อ job (`N frames in Xs (Y s/frame, device=cpu|cuda)`) ไว้ใช้ปรับค่าประมาณภายหลัง
+
 ## Tech Stack (pin version จริงตอน scaffold แล้วบันทึกที่นี่)
 
 - Web: Node 24, pnpm, TypeScript strict, Next.js App Router (stable ล่าสุด), `@supabase/ssr`, `@supabase/supabase-js`, `zod`, `@aws-sdk/client-s3`, `@aws-sdk/s3-request-presigner` (`forcePathStyle: true`, region `auto` สำหรับ Cloudflare R2), Tailwind

@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -79,8 +80,13 @@ def _pipeline(
 
     stage("enhance")
     hb.set_progress(0, info.frames)
+    t0 = time.monotonic()
     runner.process(in_path, out_path, preset, info, hb.set_progress, hb.check)
     hb.check()
+    secs = time.monotonic() - t0
+    # Measured speed, to calibrate the estimates later (SPEC "Runner performance").
+    log(f"job {job_id}: {info.frames} frames in {secs:.1f}s "
+        f"({secs / max(info.frames, 1):.3f} s/frame, device={getattr(runner, 'device', 'cpu')})")
 
     stage("encode")  # final verification of the encoded file
     out_info = media.verify_output(info, out_path, preset.scale)
@@ -137,13 +143,25 @@ def _report_fail(api: ApiClient, job_id: str, attempt_id: str, code: str, messag
     return outcome
 
 
+def claim_filter(runner: Runner) -> list[str]:
+    """Preset ids to claim: what the runner can run on its resolved device (CPU: Anime 4x only)."""
+    fn = getattr(runner, "claim_presets", None)
+    return list(fn() if fn else runner.presets)
+
+
 def run_queue(api: ApiClient, runner: Runner, work_dir: Path, max_jobs: int | None = None) -> int:
     """Claim and process jobs until the queue is empty (or max_jobs). Returns an exit code."""
-    gpu = None if runner.name == "mock" else detect_gpu()
+    device = getattr(runner, "device", None)  # only the realesrgan runner has one
+    gpu = detect_gpu() if device == "cuda" else None  # on CPU send no gpu info (the field means a GPU)
+    presets = claim_filter(runner)
+    if device == "cpu":
+        log(f"device: cpu ({os.cpu_count()} threads) \u2014 only Anime 4\u00d7 jobs will be claimed")
+    elif device == "cuda":
+        log(f"device: cuda ({gpu['name'] if gpu else 'unknown GPU'})")
     done = 0
     while max_jobs is None or done < max_jobs:
         try:
-            claim = api.claim(presets=list(runner.presets), gpu=gpu)
+            claim = api.claim(presets=presets, gpu=gpu)
         except ApiError as e:
             if e.code == "ASSET_MISSING":
                 log("input asset missing for a job (server failed it); claiming again")
@@ -170,6 +188,9 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--max-jobs", type=int, default=None, help="stop after this many jobs")
     run.add_argument("--weights-dir", default=str(DEFAULT_CACHE_DIR),
                      help="model weights cache (Colab: a Google Drive path); default %(default)s")
+    run.add_argument("--device", choices=("auto", "cuda", "cpu"), default="auto",
+                     help="realesrgan only: auto = cuda if available else cpu. On cpu only the Anime 4x "
+                          "preset is claimed (much slower); default %(default)s")
     return ap
 
 
@@ -190,7 +211,7 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as e:  # noqa: BLE001
             print(f"error: Real-ESRGAN setup failed: {sanitize(str(e), limit=1500)}", file=sys.stderr)
             return 2
-    runner = get_runner(args.runner, args.weights_dir)
+    runner = get_runner(args.runner, args.weights_dir, args.device)
 
     api = ApiClient(args.api, token)
     if args.work_dir:

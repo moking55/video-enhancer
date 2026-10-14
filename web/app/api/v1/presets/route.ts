@@ -4,7 +4,7 @@ import { json } from '@/lib/http';
 
 const handler = withUser(async () => {
   const presets = listPresets().map(
-    ({ id, label, model, scale, maxInput, limits, note, secPerMegapixelFrame }) => ({
+    ({ id, label, model, scale, maxInput, limits, note, secPerMegapixelFrame, cpuCapable }) => ({
       id,
       label,
       model,
@@ -14,6 +14,7 @@ const handler = withUser(async () => {
       // Lets the client estimate processing time (see estimateProcessingSec).
       secPerMegapixelFrame,
       note: note ?? null,
+      cpuCapable: cpuCapable === true,
     }),
   );
   return json({ presets });

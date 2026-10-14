@@ -33,4 +33,17 @@ Open `colab_runner.ipynb` in Google Colab, then:
    **Runtime -> Disconnect and delete runtime** to free the GPU.
 
 Form fields in the settings cell: `REPO_REF` (branch/tag/commit to install), `USE_DRIVE_CACHE`, `WEIGHTS_DIR_DRIVE`,
-`MAX_JOBS` (0 = until empty), `RUNNER` (`realesrgan` or `mock`). Secrets are never printed; only a masked token and the API host.
+`MAX_JOBS` (0 = until empty), `RUNNER` (`realesrgan` or `mock`), `CPU_FALLBACK` (see below). Secrets are never printed; only a masked token and the API host.
+
+### CPU fallback (no GPU)
+
+If the session has no GPU, the notebook with `CPU_FALLBACK` on (the default) runs the worker on the CPU instead of
+stopping (`--device cpu`; the CLI default `--device auto` picks cuda when available, else cpu). On CPU:
+
+- only the **Anime 4x** preset (`realesrgan-anime-x4`) is claimed (`CPU_PRESETS` in `runners/realesrgan.py`); the claim
+  sends that `presets` filter and no `gpu`, so every other job stays `QUEUED` for a GPU session;
+- fp32, whole frame with batch 1 (tiles 512/256/128 only if RAM runs out), `libx264` encoder;
+- expect it to be far slower than a T4 (guess: 15-30x; not measured yet). The web app's time estimates stay GPU-based.
+
+Each job logs its measured speed (`job <id>: <frames> frames in <s>s (<s/frame> s/frame, device=cpu|cuda)`) so the
+estimate can be calibrated later. With `CPU_FALLBACK` off, a session without a GPU stops as before.

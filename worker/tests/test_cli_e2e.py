@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from enhancer_worker import cli, media
@@ -28,6 +30,7 @@ def test_e2e_success(api, clips, tmp_path, capsys, monkeypatch):
     assert run_cli(api, tmp_path) == 0
     out = capsys.readouterr().out
     assert "queue empty" in out
+    assert re.search(rf"job {job_id}: 60 frames in [0-9.]+s \([0-9.]+ s/frame, device=cpu\)", out)
     assert "sig=" not in out and TOKEN not in out
 
     assert api.jobs[job_id]["state"] == "SUCCEEDED", api.endpoints("fail")

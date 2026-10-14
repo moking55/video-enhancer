@@ -1,4 +1,4 @@
-"""Real-ESRGAN runner (GPU). torch / basicsr / realesrgan / numpy are imported lazily inside
+"""Real-ESRGAN runner (GPU, with a CPU fallback for Anime 4x). torch / basicsr / realesrgan / numpy are imported lazily inside
 TorchEngine (Colab provides them), so this module imports and its logic tests run without them.
 
 Performance design (SPEC "Runner performance"):
@@ -7,11 +7,14 @@ Performance design (SPEC "Runner performance"):
   * AdaptiveUpscaler walks a ladder (tile 0 batch 4/2/1, tile 512/256/128) at job start and again
     on any OOM during the job; RealESRGANer's tiling swallows OOM, so its forward is wrapped to raise
   * encoder: h264_nvenc when a feature test passes, else libx264 CRF 18
+  * CPU fallback (device="cpu"): fp32, whole frame batch 1 (ladder: tile 0, 512, 256, 128), libx264,
+    and only the presets in CPU_PRESETS are claimed (the rest stay QUEUED for a GPU session)
 """
 
 from __future__ import annotations
 
 import gc
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Sequence
@@ -53,14 +56,22 @@ LADDER: tuple[InferConfig, ...] = (
     InferConfig(512, 1), InferConfig(256, 1), InferConfig(128, 1),
 )
 
-_OOM_HINTS = ("out of memory", "alloc_failed", "not_enough_workspace")
+# CPU: no tile-0 batching (RAM, and no parallelism to gain); tiles remain as the OOM escape hatch.
+CPU_LADDER: tuple[InferConfig, ...] = LADDER[2:]
+
+# Presets the CPU fallback may claim (one place, so more can be added once measured on Colab CPU).
+CPU_PRESETS: tuple[str, ...] = ("realesrgan-anime-x4",)
+
+_OOM_HINTS = ("out of memory", "alloc_failed", "not_enough_workspace", "not enough memory",
+              "can't allocate memory")
 
 
 def is_oom(exc: BaseException | None) -> bool:
-    """CUDA out-of-memory, looking through the __cause__/__context__ chain."""
+    """CUDA or host out-of-memory, looking through the __cause__/__context__ chain."""
     depth = 0
     while exc is not None and depth < 8:
-        if type(exc).__name__ == "OutOfMemoryError" or any(h in str(exc).lower() for h in _OOM_HINTS):
+        if (type(exc).__name__ == "OutOfMemoryError" or isinstance(exc, MemoryError)
+                or any(h in str(exc).lower() for h in _OOM_HINTS)):
             return True
         exc = exc.__cause__ or exc.__context__
         depth += 1
@@ -94,10 +105,10 @@ class AdaptiveUpscaler:
         self._cleanup()
         if self._i + 1 >= len(self._ladder):
             raise WorkerError(
-                f"out of GPU memory even at tile {self.config.tile}: {str(exc)[:200]}", code="OOM"
+                f"out of memory even at tile {self.config.tile}: {str(exc)[:200]}", code="OOM"
             ) from exc
         self._i += 1
-        self._log(f"GPU OOM: falling back to tile={self.config.tile} batch={self.config.batch}")
+        self._log(f"OOM: falling back to tile={self.config.tile} batch={self.config.batch}")
 
     def select(self, sample: bytes) -> InferConfig:
         """Pick the first config that can process `sample` frames (job start)."""
@@ -134,17 +145,24 @@ class ModelForwardError(Exception):
 
 
 class TorchEngine:
-    """Model + GPU inference. Needs CUDA, torch, basicsr and realesrgan (see setup_colab)."""
+    """Model + inference on CUDA (fp16) or CPU (fp32). Needs torch, basicsr and realesrgan (see setup_colab)."""
 
-    def __init__(self, spec: ModelSpec, weights_path: Path):
+    def __init__(self, spec: ModelSpec, weights_path: Path, device: str = "cuda"):
         import torch
         from realesrgan import RealESRGANer
 
-        if not torch.cuda.is_available():
+        if device not in ("cuda", "cpu"):
+            raise WorkerError(f"unknown device {device!r}")
+        if device == "cuda" and not torch.cuda.is_available():
             raise WorkerError("no CUDA GPU available", code="NO_GPU")
-        torch.backends.cudnn.benchmark = True  # fixed input size within a job
+        if device == "cuda":
+            torch.backends.cudnn.benchmark = True  # fixed input size within a job
+        else:
+            torch.set_num_threads(os.cpu_count() or 1)
         self.torch = torch
         self.spec = spec
+        self.device = device
+        self.half = device == "cuda"
         if spec.arch == "rrdb":
             from basicsr.archs.rrdbnet_arch import RRDBNet
 
@@ -155,7 +173,7 @@ class TorchEngine:
             model = SRVGGNetCompact(num_in_ch=3, num_out_ch=3, num_feat=64, num_conv=spec.num_conv, upscale=spec.scale,
                                     act_type="prelu")
         self.up = RealESRGANer(scale=spec.scale, model_path=str(weights_path), model=model, tile=0, tile_pad=10,
-                               pre_pad=0, half=True, device=torch.device("cuda"))
+                               pre_pad=0, half=self.half, device=torch.device(device))
         self.model = self.up.model
         orig_forward = self.model.forward
 
@@ -175,7 +193,8 @@ class TorchEngine:
 
     def cleanup(self) -> None:
         gc.collect()
-        self.torch.cuda.empty_cache()
+        if self.device == "cuda":
+            self.torch.cuda.empty_cache()
 
     def run(self, cfg: InferConfig, frames: list[bytes]) -> list[bytes]:
         import numpy as np
@@ -186,7 +205,8 @@ class TorchEngine:
         for i, f in enumerate(frames):
             host[i] = np.frombuffer(f, np.uint8).reshape(h, w, 3)
         with torch.inference_mode():
-            x = torch.from_numpy(host).cuda().permute(0, 3, 1, 2).half().div_(255)
+            x = torch.from_numpy(host).to(self.device).permute(0, 3, 1, 2)
+            x = (x.half() if self.half else x.float()).div_(255)
             ph, pw = (-h) % self.mod, (-w) % self.mod
             if ph or pw:
                 x = torch.nn.functional.pad(x, (0, pw, 0, ph), mode="reflect")
@@ -211,21 +231,51 @@ def _log(msg: str) -> None:
     print(msg, flush=True)
 
 
+def cuda_available() -> bool:
+    try:
+        import torch
+    except ImportError:
+        return False
+    return bool(torch.cuda.is_available())
+
+
+def resolve_device(device: str = "auto") -> str:
+    """"auto" -> "cuda" if torch sees a GPU, else "cpu". "cuda" / "cpu" are taken as given."""
+    if device == "auto":
+        return "cuda" if cuda_available() else "cpu"
+    if device not in ("cuda", "cpu"):
+        raise ValueError(f"device must be auto, cuda or cpu, got {device!r}")
+    return device
+
+
+def supported_presets(device: str) -> tuple[str, ...]:
+    """Preset ids this runner can run on `device` (what it sends as the claim filter)."""
+    return CPU_PRESETS if device == "cpu" else tuple(MODELS)
+
+
 class RealEsrganRunner:
     name = "realesrgan"
-    presets = tuple(MODELS)
+    presets = tuple(MODELS)  # every preset the runner knows; see supported_presets for one device
 
     def __init__(self, weights_dir: str | Path | None = None,
-                 engine_factory: Callable[[ModelSpec, Path], Any] = TorchEngine):
+                 engine_factory: Callable[..., Any] = TorchEngine, device: str = "auto"):
         self.weights_dir = Path(weights_dir) if weights_dir else DEFAULT_CACHE_DIR
         self._engine_factory = engine_factory
+        self.device = resolve_device(device)
         self._engines: dict[str, Any] = {}
         self.last_config: dict[str, Any] | None = None  # effective config of the last job
+
+    def supported_presets(self, device: str | None = None) -> tuple[str, ...]:
+        return supported_presets(device or self.device)
+
+    def claim_presets(self) -> tuple[str, ...]:
+        """What to send as the claim `presets` filter for the resolved device."""
+        return self.supported_presets()
 
     def _engine(self, spec: ModelSpec) -> Any:
         if spec.weights not in self._engines:
             path = ensure_weights(spec.weights, self.weights_dir, log=_log)
-            self._engines[spec.weights] = self._engine_factory(spec, path)
+            self._engines[spec.weights] = self._engine_factory(spec, path, self.device)
         return self._engines[spec.weights]
 
     def process(
@@ -243,16 +293,24 @@ class RealEsrganRunner:
         if preset.scale != spec.scale:
             raise WorkerError(f"preset scale {preset.scale} != native model scale {spec.scale}")
 
+        if preset.id not in self.supported_presets():
+            raise WorkerError(
+                f"preset {preset.id!r} is not supported on {self.device} (the CPU fallback runs only "
+                f"{', '.join(CPU_PRESETS)}); it needs a GPU session",
+                code="UNSUPPORTED_DEVICE",
+            )
+
         engine = self._engine(spec)
         check_abort()
         engine.set_size(info.width, info.height)
-        upscaler = AdaptiveUpscaler(engine.run, cleanup=engine.cleanup, log=_log)
+        upscaler = AdaptiveUpscaler(engine.run, ladder=CPU_LADDER if self.device == "cpu" else LADDER,
+                                    cleanup=engine.cleanup, log=_log)
         cfg = upscaler.select(bytes(info.width * info.height * 3))
-        nvenc = media.nvenc_available()
+        nvenc = self.device == "cuda" and media.nvenc_available()
         codec_args = media.nvenc_args() if nvenc else media.x264_args()
         encoder = "h264_nvenc" if nvenc else "libx264"
-        self.last_config = {"tile": cfg.tile, "batch": cfg.batch, "encoder": encoder}
-        _log(f"realesrgan {preset.id}: tile={cfg.tile} batch={cfg.batch} encoder={encoder}")
+        self.last_config = {"tile": cfg.tile, "batch": cfg.batch, "encoder": encoder, "device": self.device}
+        _log(f"realesrgan {preset.id}: device={self.device} tile={cfg.tile} batch={cfg.batch} encoder={encoder}")
 
         ow, oh = media.expected_size(info, spec.scale)
         video_only = output_path.with_suffix(".video.mp4")

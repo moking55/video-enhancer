@@ -3,7 +3,7 @@
 import { useEffect, useId, useState } from 'react';
 
 import { apiErrorText } from '@/lib/error-messages';
-import { compatReasonTh, formatEstimateMinutesTh } from '@/lib/preset-options';
+import { compatReasonTh, cpuCapableNoteTh, formatEstimateMinutesTh } from '@/lib/preset-options';
 import type { PresetOption, PresetRow } from '@/lib/preset-options';
 
 export type PresetsState = { presets: PresetOption[] | null; loadError: string | null };
@@ -61,6 +61,8 @@ export function PresetOptions(props: {
         const id = `${groupId}-${preset.id}`;
         const reasonId = `${id}-reason`;
         const noteId = `${id}-note`;
+        const cpuNote = cpuCapableNoteTh(preset);
+        const cpuNoteId = `${id}-cpu`;
         const unusable = !compat.ok;
         return (
           <div key={preset.id} className="flex items-start gap-2">
@@ -73,7 +75,7 @@ export function PresetOptions(props: {
               disabled={unusable}
               onChange={() => onChange(preset.id)}
               aria-describedby={
-                [unusable ? reasonId : null, preset.note ? noteId : null]
+                [unusable ? reasonId : null, preset.note ? noteId : null, cpuNote ? cpuNoteId : null]
                   .filter(Boolean)
                   .join(' ') || undefined
               }
@@ -95,6 +97,11 @@ export function PresetOptions(props: {
               {preset.note ? (
                 <span id={noteId} className="text-sm text-zinc-600 dark:text-zinc-400">
                   หมายเหตุ: {preset.note}
+                </span>
+              ) : null}
+              {cpuNote ? (
+                <span id={cpuNoteId} className="text-sm text-zinc-600 dark:text-zinc-400">
+                  {cpuNote}
                 </span>
               ) : null}
               {unusable ? (

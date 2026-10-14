@@ -7,7 +7,7 @@ from .base import Runner
 RUNNER_NAMES = ("mock", "realesrgan")
 
 
-def get_runner(name: str, weights_dir: str | None = None) -> Runner:
+def get_runner(name: str, weights_dir: str | None = None, device: str = "auto") -> Runner:
     if name == "mock":
         from .mock import MockRunner
 
@@ -15,5 +15,5 @@ def get_runner(name: str, weights_dir: str | None = None) -> Runner:
     if name == "realesrgan":
         from .realesrgan import RealEsrganRunner
 
-        return RealEsrganRunner(weights_dir)
+        return RealEsrganRunner(weights_dir, device=device)
     raise ValueError(f"unknown runner {name!r} (choose from {', '.join(RUNNER_NAMES)})")

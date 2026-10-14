@@ -12,7 +12,17 @@ export type PresetOption = Pick<
   'id' | 'label' | 'model' | 'scale' | 'maxInput' | 'limits' | 'secPerMegapixelFrame'
 > & {
   note: string | null;
+  /** Can run on the worker's CPU fallback (see `Preset.cpuCapable`). */
+  cpuCapable?: boolean;
 };
+
+/** Shown under presets that the worker can also run on CPU (informational; estimates stay GPU-based). */
+export const CPU_CAPABLE_NOTE_TH = 'รันบน CPU ได้เมื่อ GPU ไม่ว่าง (ช้ากว่ามาก)';
+
+/** The CPU note for a preset, or null when it needs a GPU. */
+export function cpuCapableNoteTh(preset: Pick<PresetOption, 'cpuCapable'>): string | null {
+  return preset.cpuCapable ? CPU_CAPABLE_NOTE_TH : null;
+}
 
 /** What is known about the video (browser-reported; any field may be missing). */
 export type PresetInput = {
@@ -43,7 +53,7 @@ export function buildPresetRows(presets: readonly PresetOption[], input: PresetI
         ? estimateProcessingSec(preset, { width, height, durationSec })
         : null,
     compat: checkPresetCompatibility(
-      { ...preset, note: preset.note ?? undefined },
+      { ...preset, note: preset.note ?? undefined, cpuCapable: preset.cpuCapable ? true : undefined },
       checkMeta,
       sizeBytes,
     ),

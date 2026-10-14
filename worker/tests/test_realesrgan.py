@@ -171,7 +171,7 @@ def test_pipeline_encoder_failure_propagates(tiny, tmp_path):
 # --- runner end to end with a fake engine ------------------------------------------------------
 
 class FakeEngine:
-    def __init__(self, spec: ModelSpec, path: Path):
+    def __init__(self, spec: ModelSpec, path: Path, device: str = "cuda"):
         self.spec, self.path, self.calls, self.cleaned = spec, path, [], 0
 
     def set_size(self, w, h):
@@ -188,7 +188,7 @@ class FakeEngine:
 @pytest.fixture
 def runner(tmp_path, monkeypatch):
     monkeypatch.setattr(rr, "ensure_weights", lambda name, d, log=None: tmp_path / f"{name}.pth")
-    return RealEsrganRunner(tmp_path / "w", engine_factory=FakeEngine)
+    return RealEsrganRunner(tmp_path / "w", engine_factory=FakeEngine, device="cuda")
 
 
 def test_runner_end_to_end_verifies(runner, tiny, tmp_path):
@@ -472,3 +472,159 @@ def test_cli_setup_failure_exits_2(monkeypatch, capsys):
     assert rc == 2
     err = capsys.readouterr().err
     assert "setup failed" in err and "sig=" not in err
+
+
+# --- CPU fallback (Anime 4x only) --------------------------------------------------------------
+
+ANIME = {"id": "realesrgan-anime-x4", "model": "realesr-animevideov3", "scale": 4, "params": {}}
+
+
+class FakeEngine4(FakeEngine):
+    """4x nearest neighbour; records the device it was built for."""
+
+    def __init__(self, spec, path, device="cuda"):
+        super().__init__(spec, path)
+        self.device = device
+
+    def run(self, cfg, frames):
+        self.calls.append((cfg, len(frames)))
+        return [nn2(nn2(f, self.w, self.h), 2 * self.w, 2 * self.h) for f in frames]
+
+
+def test_resolve_device(monkeypatch):
+    monkeypatch.setattr(rr, "cuda_available", lambda: True)
+    assert rr.resolve_device("auto") == "cuda"
+    monkeypatch.setattr(rr, "cuda_available", lambda: False)
+    assert rr.resolve_device("auto") == "cpu"
+    assert rr.resolve_device("cuda") == "cuda" and rr.resolve_device("cpu") == "cpu"  # explicit wins
+    with pytest.raises(ValueError, match="device"):
+        rr.resolve_device("tpu")
+
+
+def test_supported_presets_per_device():
+    assert rr.CPU_PRESETS == ("realesrgan-anime-x4",)
+    assert rr.supported_presets("cpu") == rr.CPU_PRESETS
+    assert set(rr.supported_presets("cuda")) == set(rr.MODELS)
+    assert set(rr.CPU_PRESETS) <= set(rr.MODELS)
+    assert RealEsrganRunner(device="cpu").claim_presets() == rr.CPU_PRESETS
+    assert set(RealEsrganRunner(device="cuda").claim_presets()) == set(rr.MODELS)
+
+
+def test_runner_auto_device(monkeypatch):
+    monkeypatch.setattr(rr, "cuda_available", lambda: False)
+    assert RealEsrganRunner().device == "cpu"
+    monkeypatch.setattr(rr, "cuda_available", lambda: True)
+    assert RealEsrganRunner().device == "cuda"
+
+
+def test_cpu_runner_end_to_end_anime(tiny, tmp_path, monkeypatch):
+    monkeypatch.setattr(rr, "ensure_weights", lambda name, d, log=None: tmp_path / f"{name}.pth")
+    monkeypatch.setattr(media, "nvenc_available", lambda *a, **k: pytest.fail("nvenc must not be probed on CPU"))
+    runner = RealEsrganRunner(tmp_path / "w", engine_factory=FakeEngine4, device="cpu")
+    info = probe_file(tiny)
+    runner.process(tiny, tmp_path / "out.mp4", Preset.from_claim(ANIME), info, lambda p, t: None, lambda: None)
+    out = media.verify_output(info, tmp_path / "out.mp4", 4)
+    assert (out.width, out.height, out.frames) == (4 * W, 4 * H, 60)
+    engine = runner._engines["realesr-animevideov3"]
+    assert engine.device == "cpu"  # the factory got the device
+    assert runner.last_config == {"tile": 0, "batch": 1, "encoder": "libx264", "device": "cpu"}
+    assert {n for _, n in engine.calls} == {1}  # CPU never batches
+    assert live_pipeline_threads() == []
+
+
+@pytest.mark.parametrize("preset_id,scale", [("realesrgan-x2", 2), ("realesrgan-x4", 4), ("realesrgan-fast-x4", 4)])
+def test_cpu_runner_rejects_non_cpu_presets(tmp_path, tiny, preset_id, scale):
+    runner = RealEsrganRunner(tmp_path / "w", engine_factory=FakeEngine4, device="cpu")
+    with pytest.raises(WorkerError, match="not supported on cpu") as ei:
+        runner.process(tiny, tmp_path / "o.mp4", Preset.from_claim({"id": preset_id, "scale": scale}),
+                       probe_file(tiny), lambda p, t: None, lambda: None)
+    assert ei.value.code == "UNSUPPORTED_DEVICE"
+    assert runner._engines == {}  # rejected before any model/weights work
+
+
+def test_is_oom_detects_host_memory_errors():
+    assert is_oom(MemoryError())
+    assert is_oom(RuntimeError("[enforce fail at alloc_cpu.cpp] DefaultCPUAllocator: not enough memory: "
+                               "you tried to allocate 1073741824 bytes"))
+    assert is_oom(RuntimeError("DefaultCPUAllocator: can't allocate memory"))
+    wrapped = rr.ModelForwardError("wrapped")
+    wrapped.__cause__ = MemoryError()
+    assert is_oom(wrapped)
+    assert not is_oom(RuntimeError("shape mismatch"))
+
+
+def test_cpu_ladder_starts_at_whole_frame_batch_1():
+    assert [(c.tile, c.batch) for c in rr.CPU_LADDER] == [(0, 1), (512, 1), (256, 1), (128, 1)]
+
+
+def test_cpu_ladder_drops_to_tiles_on_memory_error():
+    log, cleaned = [], []
+
+    def run(cfg, frames):
+        log.append(cfg)
+        if cfg.tile == 0:
+            raise MemoryError()
+        return [f + b"!" for f in frames]
+
+    up = AdaptiveUpscaler(run, ladder=rr.CPU_LADDER, cleanup=lambda: cleaned.append(1))
+    assert up.select(b"x") == InferConfig(512, 1)
+    assert up([b"a", b"b"]) == [b"a!", b"b!"] and cleaned == [1]
+    assert all(c.batch == 1 for c in log)
+
+
+def test_cpu_ladder_exhausted_reports_oom():
+    def run(cfg, frames):
+        raise MemoryError()
+
+    with pytest.raises(WorkerError) as ei:
+        AdaptiveUpscaler(run, ladder=rr.CPU_LADDER).select(b"x")
+    assert ei.value.code == "OOM"
+
+
+def test_cli_device_flag(monkeypatch, tmp_path):
+    from enhancer_worker import setup_colab
+
+    monkeypatch.setattr(setup_colab, "ensure_realesrgan", lambda *a, **k: None)
+    captured = []
+    monkeypatch.setattr(cli, "run_queue", lambda api, runner, wd, mj: captured.append(runner) or 0)
+    base = ["run", "--api", "http://x", "--token", "t", "--work-dir", str(tmp_path / "w"), "--runner", "realesrgan"]
+    assert cli.build_parser().parse_args(["run"]).device == "auto"
+    monkeypatch.setattr(rr, "cuda_available", lambda: False)
+    for extra in ([], ["--device", "cuda"], ["--device", "cpu"]):
+        assert cli.main([*base, *extra]) == 0
+    assert [r.device for r in captured] == ["cpu", "cuda", "cpu"]
+    with pytest.raises(SystemExit):
+        cli.main([*base, "--device", "tpu"])
+
+
+def test_run_queue_cpu_claims_only_anime_and_sends_no_gpu(tmp_path, capsys, monkeypatch):
+    from enhancer_worker.api import ApiClient
+    from fake_api import TOKEN, FakeApi
+
+    monkeypatch.setattr(cli, "detect_gpu", lambda: pytest.fail("no GPU probing on CPU"))
+    api = FakeApi().start()
+    try:
+        runner = RealEsrganRunner(tmp_path / "w", engine_factory=FakeEngine4, device="cpu")
+        assert cli.run_queue(ApiClient(api.base_url, TOKEN), runner, tmp_path / "work") == 0
+        assert api.endpoints("claim") == [{"presets": ["realesrgan-anime-x4"]}]  # no "gpu" key
+    finally:
+        api.stop()
+    out = capsys.readouterr().out
+    assert "device: cpu (" in out and "threads) — only Anime 4× jobs will be claimed" in out
+
+
+def test_run_queue_cuda_claims_all_and_sends_gpu(tmp_path, capsys, monkeypatch):
+    from enhancer_worker.api import ApiClient
+    from fake_api import TOKEN, FakeApi
+
+    monkeypatch.setattr(cli, "detect_gpu", lambda: {"name": "Tesla T4", "vramMb": 15360})
+    api = FakeApi().start()
+    try:
+        runner = RealEsrganRunner(tmp_path / "w", engine_factory=FakeEngine4, device="cuda")
+        assert cli.run_queue(ApiClient(api.base_url, TOKEN), runner, tmp_path / "work") == 0
+        body = api.endpoints("claim")[0]
+        assert set(body["presets"]) == set(rr.MODELS)
+        assert body["gpu"] == {"name": "Tesla T4", "vramMb": 15360}
+    finally:
+        api.stop()
+    assert "device: cuda (Tesla T4)" in capsys.readouterr().out

@@ -36,6 +36,12 @@ export type Preset = {
   noSuggest?: boolean;
   /** Not offered in production unless ENABLE_MOCK_PRESET=1. */
   devOnly?: boolean;
+  /**
+   * The Colab worker can also run this preset on its CPU fallback (much slower) when no GPU is
+   * available. Informational only: estimates and the time budget stay GPU-based.
+   * Keep in sync with `CPU_PRESETS` in worker/enhancer_worker/runners/realesrgan.py.
+   */
+  cpuCapable?: true;
 };
 
 const ALL_PRESETS: readonly Preset[] = [
@@ -69,6 +75,7 @@ const ALL_PRESETS: readonly Preset[] = [
     secPerMegapixelFrame: 0.16 / 0.2304,
     limits: COMMON_LIMITS,
     noSuggest: true,
+    cpuCapable: true,
   },
   {
     id: 'realesrgan-fast-x4',

@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { listPresets } from '@/lib/contracts/presets';
 import {
   buildPresetRows,
+  CPU_CAPABLE_NOTE_TH,
+  cpuCapableNoteTh,
   defaultPresetId,
   resolveChosenPresetId,
   type PresetOption,
@@ -11,7 +13,7 @@ import {
 const MIB = 1024 * 1024;
 
 const presets: PresetOption[] = listPresets().map(
-  ({ id, label, model, scale, maxInput, limits, note, secPerMegapixelFrame }) => ({
+  ({ id, label, model, scale, maxInput, limits, note, secPerMegapixelFrame, cpuCapable }) => ({
     id,
     label,
     model,
@@ -20,6 +22,7 @@ const presets: PresetOption[] = listPresets().map(
     limits,
     secPerMegapixelFrame,
     note: note ?? null,
+    cpuCapable: cpuCapable === true,
   }),
 );
 
@@ -106,5 +109,24 @@ describe('resolveChosenPresetId', () => {
     expect(resolveChosenPresetId(rows, 'realesrgan-x4')).toBe('realesrgan-x2');
     expect(resolveChosenPresetId(rows, 'nope')).toBe('realesrgan-x2');
     expect(resolveChosenPresetId(rows, null)).toBe('realesrgan-x2');
+  });
+});
+
+describe('cpuCapableNoteTh', () => {
+  it('is shown only for the Anime 4x preset', () => {
+    const notes = presets.filter((p) => cpuCapableNoteTh(p) !== null).map((p) => p.id);
+    expect(notes).toEqual(['realesrgan-anime-x4']);
+    expect(cpuCapableNoteTh(presets.find((p) => p.id === 'realesrgan-anime-x4')!)).toBe(
+      'รันบน CPU ได้เมื่อ GPU ไม่ว่าง (ช้ากว่ามาก)',
+    );
+    expect(CPU_CAPABLE_NOTE_TH).toContain('CPU');
+  });
+
+  it('leaves estimates and compatibility GPU-based', () => {
+    const rows = buildPresetRows(presets, { width: 640, height: 360, durationSec: 10 });
+    const anime = byId(rows, 'realesrgan-anime-x4');
+    expect(anime.compat.ok).toBe(true);
+    // 300 frames x 0.2304 MP x (0.16 / 0.2304) s + 60 s overhead: the measured T4 number, no CPU factor.
+    expect(anime.estimateSec).toBeCloseTo(60 + 300 * 0.16, 5);
   });
 });
