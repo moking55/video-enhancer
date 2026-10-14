@@ -13,8 +13,12 @@ from .errors import InputUnsupported, MediaError
 from .presets import Preset
 
 HDR_TRANSFERS = {"smpte2084", "arib-std-b67"}
-# r_frame_rate vs avg_frame_rate may differ by rounding in the container's timebase.
-CFR_REL_TOLERANCE = 1e-3
+# avg_frame_rate is frames / stream-duration, so container/audio padding and edit lists can
+# shift it a little away from r_frame_rate even for constant-rate material.
+CFR_REL_TOLERANCE = Fraction(2, 100)  # |avg - r| / r <= 2%
+# Frame count vs. duration * r_frame_rate: allow max(2 frames, 1% of frames).
+FRAME_COUNT_ABS_TOLERANCE = 2
+FRAME_COUNT_REL_TOLERANCE = Fraction(1, 100)
 
 
 @dataclass
@@ -44,6 +48,7 @@ class ProbeInfo:
             "height": self.height,
             "fps": float(self.fps),
             "fpsRational": f"{self.fps.numerator}/{self.fps.denominator}",
+            "avgFps": f"{self.avg_fps.numerator}/{self.avg_fps.denominator}",
             "frames": self.frames,
             "durationSec": self.duration,
             "codec": self.codec,
@@ -159,11 +164,29 @@ def probe_file(path: str | Path, force_count: bool = False) -> ProbeInfo:
 
 
 def is_cfr(info: ProbeInfo) -> bool:
-    if info.fps <= 0 or info.avg_fps <= 0:
-        return False
-    if info.fps == info.avg_fps:
+    """True when the clip is effectively constant frame rate.
+
+    CFR if EITHER holds:
+      1. avg_frame_rate is within CFR_REL_TOLERANCE of r_frame_rate, or
+      2. frame count matches duration * r_frame_rate within max(2, 1% of frames).
+    Missing avg_frame_rate skips check 1 (falls back to check 2). If check 2 cannot be
+    evaluated either (no frames/duration), the clip is treated as CFR rather than rejected.
+    """
+    fps = info.fps
+    if fps <= 0:
+        # Nothing to compare against; missing data is not grounds for rejection.
         return True
-    return abs(float(info.fps) - float(info.avg_fps)) / float(info.fps) <= CFR_REL_TOLERANCE
+
+    if info.avg_fps > 0 and abs(info.avg_fps - fps) / fps <= CFR_REL_TOLERANCE:
+        return True
+
+    if info.frames > 0 and info.duration > 0:
+        expected = Fraction(info.duration) * fps
+        tolerance = max(Fraction(FRAME_COUNT_ABS_TOLERANCE), FRAME_COUNT_REL_TOLERANCE * info.frames)
+        return abs(info.frames - expected) <= tolerance
+
+    # Frame count or duration unknown: cannot prove VFR, so don't reject on missing data.
+    return True
 
 
 def check_input_limits(info: ProbeInfo, preset: Preset) -> None:

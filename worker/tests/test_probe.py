@@ -7,7 +7,7 @@ import pytest
 
 from enhancer_worker.errors import InputUnsupported
 from enhancer_worker.presets import Preset
-from enhancer_worker.probe import check_input_limits, parse_probe, probe_file
+from enhancer_worker.probe import check_input_limits, is_cfr, parse_probe, probe_file
 
 PRESET = Preset.from_claim({"id": "mock-x2", "model": "mock", "scale": 2})
 
@@ -93,9 +93,57 @@ def test_limit_hevc(clips):
 
 
 def test_limit_vfr_fake(clips):
-    info = replace(good(clips), fps=Fraction(30), avg_fps=Fraction(25))
+    # avg far from r AND frame count (217) inconsistent with duration * r (300).
+    info = replace(good(clips), fps=Fraction(30), avg_fps=Fraction(25), frames=217, duration=10.0)
     with pytest.raises(InputUnsupported, match="variable frame rate"):
         check_input_limits(info, PRESET)
+
+
+def _probe(r: str, avg: str | None, frames: int, duration: float):
+    video = {"codec_type": "video", "codec_name": "h264", "width": 1280, "height": 720,
+             "pix_fmt": "yuv420p", "r_frame_rate": r, "nb_frames": str(frames)}
+    if avg is not None:
+        video["avg_frame_rate"] = avg
+    data = {"streams": [video],
+            "format": {"duration": str(duration), "size": "1000",
+                       "format_name": "mov,mp4,m4a,3gp,3g2,mj2"}}
+    return parse_probe(data)
+
+
+def test_is_cfr_reported_phone_clip_is_cfr():
+    # 190 frames over 7.58 s at 25 fps; avg = frames / stream duration.
+    info = _probe("25/1", "19000/758", frames=190, duration=7.58)
+    assert info.avg_fps == Fraction(19000, 758)
+    assert is_cfr(info)
+    check_input_limits(info, PRESET)  # no raise
+
+
+def test_is_cfr_ntsc_rational_is_cfr():
+    info = _probe("30000/1001", "2997/100", frames=60, duration=2.0)
+    assert is_cfr(info)
+
+
+def test_is_cfr_obvious_vfr_is_vfr():
+    info = _probe("30/1", "2170/100", frames=217, duration=10.0)
+    assert not is_cfr(info)
+    with pytest.raises(InputUnsupported, match="variable frame rate"):
+        check_input_limits(info, PRESET)
+
+
+def test_is_cfr_missing_avg_falls_back_to_frames_check():
+    assert is_cfr(_probe("25/1", None, frames=190, duration=7.58))
+    assert is_cfr(_probe("25/1", "0/0", frames=190, duration=7.58))
+    # Avg missing and frame count clearly inconsistent with duration * r: VFR.
+    assert not is_cfr(_probe("30/1", "0/0", frames=100, duration=10.0))
+
+
+def test_is_cfr_missing_everything_is_cfr():
+    assert is_cfr(_probe("25/1", "0/0", frames=0, duration=0.0))
+
+
+def test_summary_includes_avg_fps():
+    info = _probe("25/1", "19000/758", frames=190, duration=7.58)
+    assert info.to_summary()["avgFps"] == "9500/379"  # Fraction reduces 19000/758
 
 
 def test_limit_hdr_10bit_and_audio(clips):
